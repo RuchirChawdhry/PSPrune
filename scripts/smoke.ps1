@@ -30,7 +30,7 @@ try {
 
     $dryRun = Invoke-PSPrune -Path $target -FunctionName Get-Label -Candidates $candidates -TestScript $contract
     if (-not $dryRun.AllPassed -or -not $dryRun.Improved -or $dryRun.Applied) {
-        throw 'Dry-run candidate-selection contract failed.'
+        throw "Dry-run candidate-selection contract failed: $($dryRun | ConvertTo-Json -Depth 7 -Compress)"
     }
     if ([IO.File]::ReadAllText($target) -cne $before) {
         throw 'Dry run unexpectedly modified the source.'
