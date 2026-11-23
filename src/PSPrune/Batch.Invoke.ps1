@@ -107,25 +107,18 @@ function Invoke-PSPruneBatch {
     }
 
     $timeout = if ($batch.test_timeout_seconds) { [int]$batch.test_timeout_seconds } else { 300 }
-    $baseline = Invoke-PSPrunePester -ProjectRoot $root -RelativeTestPath $batch.test_path -RelativeTargetPath $batch.target.file -TimeoutSeconds $timeout
-    if (-not $baseline.Passed) {
-        throw "Original project tests failed. No candidates evaluated: $($baseline.Error)"
-    }
-
     Import-Module PSComplexity -MinimumVersion '0.7.1' -ErrorAction Stop
+
     $results = [Collections.Generic.List[object]]::new()
     $replacements = @{}
     for ($index = 1; $index -le 5; $index++) {
         $candidatePath = $paths[$index - 1]
-        $passed = $false
-        $reason = $null
+        $candidateSource = [IO.File]::ReadAllText($candidatePath)
         $cognitive = $null
         $cyclomatic = $null
-        $candidateSource = [IO.File]::ReadAllText($candidatePath)
-        $scoreDuration = $null
-        $testDuration = $null
+        $errorMessage = $null
+        $scoreWatch = [Diagnostics.Stopwatch]::StartNew()
         try {
-            $scoreWatch = [Diagnostics.Stopwatch]::StartNew()
             $candidateAst = Get-PSPruneAst -Source $candidateSource -FunctionName $batch.target.function -SingleFunction
             if ((Get-PSPruneSignature -FunctionAst $candidateAst) -cne $batch.target.signature) {
                 throw 'Candidate signature does not match original.'
@@ -145,65 +138,68 @@ function Invoke-PSPruneBatch {
             finally {
                 if (Test-Path -LiteralPath $scoring) { Remove-Item -LiteralPath $scoring -Force }
             }
-            $scoreWatch.Stop()
-            $scoreDuration = $scoreWatch.ElapsedMilliseconds
-            $tested = Invoke-PSPrunePester -ProjectRoot $root -RelativeTestPath $batch.test_path -RelativeTargetPath $batch.target.file -Replacement $replacement -TimeoutSeconds $timeout
-            $testDuration = $tested.DurationMs
-            if (-not $tested.Passed) { throw "Pester failed: $($tested.Error)" }
-            $passed = $true
             $replacements[$index] = $replacement
         }
-        catch { $reason = $_.Exception.Message }
+        catch { $errorMessage = $_.Exception.Message }
+        $scoreWatch.Stop()
+        $eligible = $null -eq $errorMessage -and (
+            $cognitive -lt $batch.original.cognitive -or (
+                $cognitive -eq $batch.original.cognitive -and
+                $cyclomatic -lt $batch.original.cyclomatic
+            )
+        )
         $results.Add([pscustomobject]@{
             slot = $index
             sha256 = Get-PSPruneFileDigest -Path $candidatePath
-            passed = $passed
+            passed = $null
+            tested = $false
+            eligible = [bool]$eligible
             cyclomatic = $cyclomatic
             cognitive = $cognitive
-            score_duration_ms = $scoreDuration
-            test_duration_ms = $testDuration
+            score_duration_ms = $scoreWatch.ElapsedMilliseconds
+            test_duration_ms = $null
             regression_passed = $null
             regression_duration_ms = $null
-            error = $reason
+            error = $errorMessage
         })
     }
 
-    $allPassed = @($results | Where-Object passed).Count -eq 5
     $winner = $null
     $improved = $false
-    if ($allPassed) {
-        $eligible = @($results | Where-Object {
-            $_.cognitive -lt $batch.original.cognitive -or (
-                $_.cognitive -eq $batch.original.cognitive -and
-                $_.cyclomatic -lt $batch.original.cyclomatic
-            )
-        } | Sort-Object cognitive, cyclomatic, slot)
-
-        $regressionAttempts = 0
-        $regressionLimit = if ($batch.max_regression_candidates) { [int]$batch.max_regression_candidates } else { 1 }
-        foreach ($proposal in $eligible) {
-            if ($batch.regression_test_path) {
-                if ($regressionAttempts -ge $regressionLimit) { break }
-                $regressionAttempts++
-                $verified = Invoke-PSPrunePester -ProjectRoot $root -RelativeTestPath $batch.regression_test_path -RelativeTargetPath $batch.target.file -Replacement $replacements[$proposal.slot] -TimeoutSeconds $timeout
-                $proposal.regression_passed = $verified.Passed
-                $proposal.regression_duration_ms = $verified.DurationMs
-                if (-not $verified.Passed) {
-                    $proposal.error = "Full regression failed: $($verified.Error)"
-                    continue
-                }
-            }
-            $winner = $proposal
-            $improved = $true
-            break
+    $eligibleCandidates = @($results | Where-Object eligible |
+        Sort-Object cognitive, cyclomatic, slot)
+    foreach ($proposal in $eligibleCandidates) {
+        $test = Invoke-PSPrunePester -ProjectRoot $root -RelativeTestPath $batch.test_path -RelativeTargetPath $batch.target.file -Replacement $replacements[$proposal.slot] -TimeoutSeconds $timeout
+        $proposal.tested = $true
+        $proposal.passed = $test.Passed
+        $proposal.test_duration_ms = $test.DurationMs
+        if (-not $test.Passed) {
+            $proposal.eligible = $false
+            $proposal.error = "Focused Pester failed: $($test.Error)"
+            continue
         }
+
+        if ($batch.regression_test_path) {
+            $verified = Invoke-PSPrunePester -ProjectRoot $root -RelativeTestPath $batch.regression_test_path -RelativeTargetPath $batch.target.file -Replacement $replacements[$proposal.slot] -TimeoutSeconds $timeout
+            $proposal.regression_passed = $verified.Passed
+            $proposal.regression_duration_ms = $verified.DurationMs
+            if (-not $verified.Passed) {
+                $proposal.eligible = $false
+                $proposal.error = "Full regression failed: $($verified.Error)"
+                continue
+            }
+        }
+        $winner = $proposal
+        $improved = $true
+        break
     }
 
+    $testedCandidates = @($results | Where-Object tested)
     $record = [ordered]@{
         id = $Id
         created_at = $batch.created_at
         completed_at = [DateTime]::UtcNow.ToString('o')
-        status = if (-not $allPassed -or -not $improved) { 'rejected' } elseif ($Apply) { 'applied' } else { 'evaluated' }
+        status = if (-not $improved) { 'rejected' } elseif ($Apply) { 'applied' } else { 'evaluated' }
         target = [ordered]@{
             file = $batch.target.file
             function = $batch.target.function
@@ -215,8 +211,11 @@ function Invoke-PSPruneBatch {
             runner = 'Pester'
             test_path = $batch.test_path
             regression_test_path = $batch.regression_test_path
-            baseline_passed = $true
-            all_passed = $allPassed
+            baseline_passed = $null
+            all_passed = $null
+            tested_count = $testedCandidates.Count
+            winner_passed = [bool]$winner
+            test_discovery = $batch.test_discovery
             winner_regression_passed = if ($batch.regression_test_path) { [bool]$winner } else { $null }
             regression_attempt_count = @($results | Where-Object { $null -ne $_.regression_passed }).Count
         }
