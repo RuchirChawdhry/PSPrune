@@ -5,6 +5,10 @@ BeforeAll {
     $candidateDir = Join-Path $root 'tests/fixtures/candidates'
     $script:candidates = @(Get-ChildItem -LiteralPath $candidateDir -Filter '*.txt' -File |
         Sort-Object Name | ForEach-Object { [IO.File]::ReadAllText($_.FullName) })
+    if (-not (Test-Path -LiteralPath $script:fixture) -or
+        -not (Test-Path -LiteralPath $script:contract) -or $script:candidates.Count -ne 5) {
+        throw 'Required PSPrune fixtures are missing or incomplete.'
+    }
     if (-not (Get-Module -ListAvailable PSComplexity | Where-Object Version -ge '0.7.1')) {
         Install-PSResource PSComplexity -Version '0.7.1' -Scope CurrentUser -TrustRepository -ErrorAction Stop
     }
