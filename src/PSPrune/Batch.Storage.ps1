@@ -118,7 +118,7 @@ function New-PSPruneBatch {
         [string]$ProjectPath = '.',
         [string]$TestPath = 'tests',
         [string]$RegressionTestPath,
-        [ValidateRange(5, 3600)][int]$TestTimeoutSeconds = 120,
+        [ValidateRange(5, 3600)][int]$TestTimeoutSeconds = 300,
         [ValidateSet('Single', 'Split')][string]$Mode = 'Single'
     )
     $root = (Resolve-Path -LiteralPath $ProjectPath -ErrorAction Stop).ProviderPath
