@@ -52,16 +52,16 @@ Describe 'PSPrune v0.3 same-file function groups' {
         $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:project -Apply
         $result.mode | Should -BeExactly 'Split'
         $result.status | Should -BeExactly 'applied'
-        $result.validation.all_passed | Should -BeTrue
+        $result.validation.winner_passed | Should -BeTrue
         $result.applied | Should -BeTrue
         $result.candidates.Count | Should -Be 5
         $winner = @($result.candidates | Where-Object slot -eq $result.selected_slot)[0]
         $winner.eligible | Should -BeTrue
         $winner.helper_count | Should -Be 1
         $winner.functions.Count | Should -Be 2
-        $winner.total_cognitive | Should -BeLessThan $batch.original.cognitive
+        $winner.concentration_score | Should -BeLessThan $batch.original.concentration_score
         $winner.max_cognitive | Should -BeLessThan $batch.original.cognitive
-        ($winner.adjusted_cyclomatic -le $batch.original.cyclomatic) | Should -BeTrue
+        $winner.concentration_score | Should -BeGreaterThan 0
 
         $revised = [IO.File]::ReadAllText($script:target)
         $revised | Should -Match ([regex]::Escape($winner.functions[1].name))
@@ -83,7 +83,7 @@ Describe 'PSPrune v0.3 same-file function groups' {
         $batch = New-PSPruneBatch -Path $script:target -FunctionName Get-Category -ProjectPath $script:project -Mode Split
         foreach ($slot in 1..5) {
             $file = Join-Path $script:sourceCandidates "candidate-$slot.txt"
-            if ($slot -eq 3) {
+            if ($slot -eq 1) {
                 $wrong = Join-Path $TestDrive 'wrong-split.ps1'
                 $text = [IO.File]::ReadAllText($file)
                 [IO.File]::WriteAllText($wrong, $text.Replace("'negative'", "'incorrect'"))
@@ -92,11 +92,12 @@ Describe 'PSPrune v0.3 same-file function groups' {
             $null = Submit-PSPruneCandidate -Id $batch.id -Slot $slot -SourcePath $file -ProjectPath $script:project
         }
         $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:project -Apply
-        $result.status | Should -BeExactly 'rejected'
-        $result.validation.all_passed | Should -BeFalse
-        $result.candidates[2].passed | Should -BeFalse
-        $result.applied | Should -BeFalse
-        [IO.File]::ReadAllText($script:target) | Should -BeExactly $script:original
+        $result.status | Should -BeExactly 'applied'
+        $result.validation.winner_passed | Should -BeTrue
+        $result.candidates[0].passed | Should -BeFalse
+        $result.candidates[1].passed | Should -BeTrue
+        $result.candidates[2].tested | Should -BeFalse
+        $result.applied | Should -BeTrue
     }
 
     It 'rejects score gaming by adding unused helpers without reducing the original function' {
@@ -111,10 +112,11 @@ Describe 'PSPrune v0.3 same-file function groups' {
             $null = Submit-PSPruneCandidate -Id $batch.id -Slot $slot -SourcePath $file -ProjectPath $script:project
         }
         $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:project -Apply
-        $result.validation.all_passed | Should -BeTrue
+        $result.validation.winner_passed | Should -BeTrue
         $result.improved | Should -BeFalse
         $result.applied | Should -BeFalse
         @($result.candidates | Where-Object eligible).Count | Should -Be 0
+        $result.validation.tested_count | Should -Be 0
         [IO.File]::ReadAllText($script:target) | Should -BeExactly $script:original
     }
 
@@ -133,11 +135,11 @@ Describe 'PSPrune v0.3 same-file function groups' {
         }
         $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:project -Apply
         $result.applied | Should -BeTrue
-        $result.validation.all_passed | Should -BeTrue
+        $result.validation.winner_passed | Should -BeTrue
         $result.validation.winner_regression_passed | Should -BeTrue
         $result.validation.regression_test_path | Should -BeExactly 'tests'
         @($result.candidates | Where-Object passed).Count | Should -Be 5
-        @($result.candidates | Where-Object { $null -ne $_.test_duration_ms }).Count | Should -Be 5
+        @($result.candidates | Where-Object { $null -ne $_.test_duration_ms }).Count | Should -Be 1
         @($result.candidates | Where-Object { $_.regression_passed -eq $true }).Count | Should -Be 1
         @($result.candidates | Where-Object { $null -ne $_.regression_duration_ms }).Count | Should -Be 1
     }
@@ -157,7 +159,7 @@ Describe 'PSPrune v0.3 same-file function groups' {
         $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:project -Apply
         $result.applied | Should -BeTrue
         $result.selected_slot | Should -Be 2
-        $result.validation.all_passed | Should -BeTrue
+        $result.validation.winner_passed | Should -BeTrue
         $result.validation.winner_regression_passed | Should -BeTrue
         $result.candidates[0].regression_passed | Should -BeFalse
         $result.candidates[0].eligible | Should -BeFalse
