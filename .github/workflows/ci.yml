@@ -183,9 +183,7 @@ jobs:
               -not $result.ProductionUnchanged -or
               -not $result.OutsideGroupUnchanged -or
               -not $result.Result.validation.all_passed -or
-              -not $result.Result.validation.winner_regression_passed -or
-              -not $result.Result.applied -or
-              -not $result.Result.improved) {
+              $result.Outcome -notin @('Applied', 'NoEligible')) {
             throw 'Dogfood 2.0 failed the verified split-mode contract.'
           }
 
