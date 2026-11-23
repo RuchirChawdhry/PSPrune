@@ -17,19 +17,19 @@ function Get-PSPruneAst {
     }
 
     $statements = @($root.EndBlock.Statements)
-    $matches = @($statements | Where-Object {
+    $definitions = @($statements | Where-Object {
         $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
         $_.Name -eq $FunctionName
     })
 
-    if ($matches.Count -ne 1) {
-        throw "Expected one top-level function named '$FunctionName'; found $($matches.Count)."
+    if ($definitions.Count -ne 1) {
+        throw "Expected one top-level function named '$FunctionName'; found $($definitions.Count)."
     }
     if ($SingleFunction -and $statements.Count -ne 1) {
         throw 'Each candidate must contain exactly one top-level function and no other statements.'
     }
 
-    return $matches[0]
+    return $definitions[0]
 }
 
 function Get-PSPruneReport {
