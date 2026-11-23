@@ -105,7 +105,7 @@ function Invoke-PSPrune {
 
     $scratch = Join-Path ([IO.Path]::GetTempPath()) ("psprune-" + [guid]::NewGuid().ToString('N'))
     $null = New-Item -ItemType Directory -Path $scratch -Force
-    $pwsh = (Get-Command pwsh -CommandType Application -ErrorAction Stop).Source
+    $pwsh = (Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
     $results = [Collections.Generic.List[object]]::new()
 
     try {
