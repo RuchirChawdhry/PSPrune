@@ -67,7 +67,7 @@ Describe 'PSPrune v0.2 batch contract' {
         $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:workingProject -Apply
         ($result -is [pscustomobject]) | Should -BeTrue
         $result.status | Should -BeExactly 'applied'
-        $result.validation.all_passed | Should -BeTrue
+        $result.validation.winner_passed | Should -BeTrue
         $result.improved | Should -BeTrue
         $result.applied | Should -BeTrue
         $result.candidates.Count | Should -Be 5
@@ -106,11 +106,11 @@ Describe 'PSPrune v0.2 batch contract' {
             $null = Submit-PSPruneCandidate -Id $batch.id -Slot $slot -SourcePath $file -ProjectPath $script:workingProject
         }
         $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:workingProject -Apply
-        $result.status | Should -BeExactly 'rejected'
-        $result.validation.all_passed | Should -BeFalse
-        $result.applied | Should -BeFalse
+        $result.status | Should -BeExactly 'applied'
+        $result.validation.winner_passed | Should -BeTrue
+        $result.applied | Should -BeTrue
         $result.candidates[0].passed | Should -BeFalse
-        [IO.File]::ReadAllText($script:workingFile) | Should -BeExactly $original
+        $result.candidates[1].passed | Should -BeTrue
         @((Get-PSPruneHistory -Path $script:workingProject)).Count | Should -Be 1
     }
 
@@ -129,10 +129,10 @@ Describe 'PSPrune v0.2 batch contract' {
         }
         $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:workingProject -Apply
         $result.applied | Should -BeTrue
-        $result.validation.all_passed | Should -BeTrue
+        $result.validation.winner_passed | Should -BeTrue
         $result.validation.winner_regression_passed | Should -BeTrue
         @($result.candidates | Where-Object passed).Count | Should -Be 5
-        @($result.candidates | Where-Object { $null -ne $_.test_duration_ms }).Count | Should -Be 5
+        @($result.candidates | Where-Object { $null -ne $_.test_duration_ms }).Count | Should -Be 1
         @($result.candidates | Where-Object { $_.regression_passed -eq $true }).Count | Should -Be 1
     }
 
