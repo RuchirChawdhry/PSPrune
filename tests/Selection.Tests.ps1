@@ -1,8 +1,8 @@
 BeforeAll {
     $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).ProviderPath
     $script:fixture = Join-Path $root 'tests/fixtures/SplitProject'
-    $script:selection = Join-Path $root 'src/PSPrune/Selection.ps1'
-    . $script:selection
+    . (Join-Path $root 'src/PSPrune/Batch.Storage.ps1')
+    . (Join-Path $root 'src/PSPrune/Split.ps1')
 }
 
 Describe 'squared cognitive concentration' {
