@@ -64,9 +64,6 @@ function Test-PSPruneSingleBatch {
     param([Parameter(Mandatory)]$Context)
     $root = $Context.Root
     $batch = $Context.Batch
-    $source = $Context.Source
-    $definition = $Context.Definition
-    $paths = $Context.Paths
     $baseline = Invoke-PSPrunePester -ProjectRoot $root -RelativeTestPath $batch.test_path -RelativeTargetPath $batch.target.file
     if (-not $baseline.Passed) {
         throw "Original project tests failed. No candidates evaluated: $($baseline.Error)"
@@ -162,7 +159,7 @@ function Complete-PSPruneSingleResult {
     $winner = $Evaluation.Winner
     $improved = $Evaluation.Improved
     $allPassed = $Evaluation.AllPassed
-    $record = New-PSPruneSingleRecord -Id $Id -Batch $batch -Results $results -Winner $winner -Improved $improved -AllPassed $allPassed -Apply:$Apply
+    $record = Get-PSPruneSingleRecord -Id $Id -Batch $batch -Results $results -Winner $winner -Improved $improved -AllPassed $allPassed -Apply:$Apply
 
     $lock = Enter-PSPruneLock -Store $store
     try {
@@ -221,7 +218,7 @@ function Select-PSPruneSingleWinner {
     }
 }
 
-function New-PSPruneSingleRecord {
+function Get-PSPruneSingleRecord {
     param([string]$Id, $Batch, $Results, $Winner, [bool]$Improved, [bool]$AllPassed, [switch]$Apply)
     $batch = $Batch
     $results = $Results
