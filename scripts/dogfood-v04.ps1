@@ -67,17 +67,32 @@ try {
         $config = New-PesterConfiguration
         $config.Run.Path = Join-Path $project 'tests'
         $config.Run.PassThru = $true
-        $config.Output.Verbosity = 'None'
+        $config.Output.Verbosity = 'Normal'
         $watch = [Diagnostics.Stopwatch]::StartNew()
         Push-Location $project
         try { $suite = Invoke-Pester -Configuration $config }
         finally { Pop-Location }
         $watch.Stop()
+        $failedTests = @(
+            foreach ($failed in @($suite.Failed)) {
+                [pscustomobject]@{
+                    Name = $failed.Name
+                    Path = $failed.Path
+                    Error = @($failed.ErrorRecord | Out-String) -join ''
+                }
+            }
+        )
         $projectRegression = [pscustomobject]@{
             Passed = $suite.Result -eq 'Passed'
             PassedCount = $suite.PassedCount
             FailedCount = $suite.FailedCount
             DurationMs = $watch.ElapsedMilliseconds
+            FailedTests = $failedTests
+        }
+        if ($suite.FailedCount) {
+            Write-Information -InformationAction Continue -MessageData (
+                $failedTests | Format-List | Out-String
+            )
         }
     }
 
