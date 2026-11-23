@@ -67,6 +67,28 @@ jobs:
           Install-PSResource Pester -Version '6.2.0' -Scope CurrentUser -TrustRepository -ErrorAction Stop
           Import-Module Pester -MinimumVersion '6.2.0' -ErrorAction Stop
 
+      - name: Install PSScriptAnalyzer for split-mode candidate checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-PSResource PSScriptAnalyzer -Version '1.24.0' -Scope CurrentUser -TrustRepository -ErrorAction Stop
+          Import-Module PSScriptAnalyzer -ErrorAction Stop
+
+      - name: Validate split-mode function groups and score-gated replacement
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $native = & ./scripts/split-smoke.ps1 -OutFile reports/split-smoke.json
+          if ($native -isnot [pscustomobject] -or
+              -not $native.Result.applied -or -not $native.CandidatePreserved -or
+              -not $native.OutsideFunctionPreserved -or $native.Submitted -ne 5) {
+            throw 'Invalid PSPrune v0.3 split-mode smoke contract.'
+          }
+          $json = $native | ConvertTo-Json -Depth 18 | ConvertFrom-Json
+          if ($json.Result.candidates.Count -ne 5) {
+            throw 'Split-mode JSON round trip lost group measurements.'
+          }
+
       - name: Validate batch management, five-agent submissions, and manual pruning
         shell: pwsh
         run: |
@@ -89,6 +111,7 @@ jobs:
           path: |
             reports/smoke.json
             reports/batch-smoke.json
+            reports/split-smoke.json
           if-no-files-found: ignore
           retention-days: 7
 
