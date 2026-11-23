@@ -214,93 +214,6 @@ function Measure-PSPruneSplitCandidate {
     }
 }
 
-function Complete-PSPruneSplitBatch {
-    param(
-        [Parameter(Mandatory)]$Batch,
-        [Parameter(Mandatory)][string]$Root,
-        [Parameter(Mandatory)]$Candidates,
-        $Winner,
-        [string]$Replacement,
-        [switch]$Apply
-    )
-
-    $id = $Batch.id
-    $store = Get-PSPruneStore -Root $Root
-    $target = Join-Path $Root $Batch.target.file
-    $workingManifest = Join-Path (Get-PSPruneBatchPath -Root $Root -Id $id) 'manifest.json'
-    $tested = @($Candidates | Where-Object tested)
-    $improved = $null -ne $Winner
-
-    $record = [ordered]@{
-        id = $id
-        mode = 'Split'
-        created_at = $Batch.created_at
-        completed_at = [DateTime]::UtcNow.ToString('o')
-        status = if (-not $improved) { 'rejected' } elseif ($Apply) { 'applied' } else { 'evaluated' }
-        target = [ordered]@{
-            file = $Batch.target.file
-            function = $Batch.target.function
-            source_sha256 = $Batch.target.source_sha256
-            file_sha256 = $Batch.target.file_sha256
-        }
-        original = $Batch.original
-        validation = [ordered]@{
-            runner = 'Pester'
-            test_path = $Batch.test_path
-            regression_test_path = $Batch.regression_test_path
-            baseline_passed = $true
-            all_passed = $null
-            tested_count = $tested.Count
-            winner_passed = [bool]$Winner
-            test_discovery = $Batch.test_discovery
-            winner_regression_passed = if ($Batch.regression_test_path) { [bool]$Winner } else { $null }
-            regression_attempt_count = @($Candidates | Where-Object { $null -ne $_.regression_passed }).Count
-        }
-        candidates = @($Candidates)
-        selected_slot = if ($improved) { $Winner.slot } else { $null }
-        improved = [bool]$improved
-        applied = $false
-    }
-
-    $lock = Enter-PSPruneLock -Store $store
-    try {
-        $working = Get-PSPruneJson -Path $workingManifest
-        if ($working.status -ne 'open') { throw "Batch '$id' has already been finalized." }
-        if ((Get-PSPruneFileDigest -Path $target) -cne $Batch.target.file_sha256) {
-            throw 'Source changed during split evaluation. Refusing stale batch.'
-        }
-        $masterPath = Get-PSPruneMasterPath -Root $Root
-        $master = Get-PSPruneJson -Path $masterPath
-        if (@($master.batches | Where-Object Id -eq $id).Count) {
-            throw "Batch '$id' already exists in permanent history."
-        }
-
-        if ($Apply -and $improved) {
-            $temp = Join-Path (Split-Path $target -Parent) (
-                '.psprune-apply-' + [guid]::NewGuid().ToString('N')
-            )
-            try {
-                [IO.File]::WriteAllText($temp, $Replacement, [Text.UTF8Encoding]::new($false))
-                [IO.File]::Move($temp, $target, $true)
-            }
-            finally {
-                if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
-            }
-            $record.applied = $true
-        }
-
-        $master.batches = @($master.batches) + @([pscustomobject]$record)
-        Save-PSPruneJson -Path $masterPath -Value $master
-        $working.status = $record.status
-        $working | Add-Member -NotePropertyName completed_at -NotePropertyValue $record.completed_at -Force
-        $working | Add-Member -NotePropertyName selected_slot -NotePropertyValue $record.selected_slot -Force
-        $working | Add-Member -NotePropertyName applied -NotePropertyValue $record.applied -Force
-        Save-PSPruneJson -Path $workingManifest -Value $working
-        Get-PSPruneHistory -Path $Root | Where-Object Id -eq $id
-    }
-    finally { $lock.Dispose() }
-}
-
 function Invoke-PSPruneSplitBatch {
     param(
         [Parameter(Mandatory)][string]$Id,
@@ -376,5 +289,5 @@ function Invoke-PSPruneSplitBatch {
         break
     }
 
-    Complete-PSPruneSplitBatch -Batch $batch -Root $root -Candidates $candidates -Winner $winner -Replacement $replacement -Apply:$Apply
+    Complete-PSPruneBatch -Batch $batch -Root $root -Candidates $candidates -Winner $winner -Replacement $replacement -Apply:$Apply
 }
