@@ -64,9 +64,6 @@ function Test-PSPruneSingleBatch {
     param([Parameter(Mandatory)]$Context)
     $root = $Context.Root
     $batch = $Context.Batch
-    $source = $Context.Source
-    $definition = $Context.Definition
-    $paths = $Context.Paths
     $baseline = Invoke-PSPrunePester -ProjectRoot $root -RelativeTestPath $batch.test_path -RelativeTargetPath $batch.target.file
     if (-not $baseline.Passed) {
         throw "Original project tests failed. No candidates evaluated: $($baseline.Error)"
