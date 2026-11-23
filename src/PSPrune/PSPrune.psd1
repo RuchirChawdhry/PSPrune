@@ -8,6 +8,7 @@
     PowerShellVersion = '7.4'
     FunctionsToExport = @(
         'Get-PSPruneReport',
+        'Get-PSPruneCommitReport',
         'Invoke-PSPrune',
         'New-PSPruneBatch',
         'Get-PSPruneBatch',
