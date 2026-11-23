@@ -188,9 +188,9 @@ function Invoke-PSPruneBatch {
         $master.batches = @($master.batches) + @([pscustomobject]$record)
         Save-PSPruneJson -Path $masterPath -Value $master
         $working.status = $record.status
-        $working.completed_at = $record.completed_at
-        $working.selected_slot = $record.selected_slot
-        $working.applied = $record.applied
+        $working | Add-Member -NotePropertyName completed_at -NotePropertyValue $record.completed_at -Force
+        $working | Add-Member -NotePropertyName selected_slot -NotePropertyValue $record.selected_slot -Force
+        $working | Add-Member -NotePropertyName applied -NotePropertyValue $record.applied -Force
         Save-PSPruneJson -Path $batchManifest -Value $working
         Get-PSPruneHistory -Path $root | Where-Object Id -eq $Id
     }
