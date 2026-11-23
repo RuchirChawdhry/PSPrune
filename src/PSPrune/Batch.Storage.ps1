@@ -111,7 +111,7 @@ function Get-PSPruneBatchPath {
 }
 
 function New-PSPruneBatch {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory, Position = 0)][string]$Path,
         [Parameter(Mandatory, Position = 1)][string]$FunctionName,
@@ -147,6 +147,7 @@ function New-PSPruneBatch {
         Where-Object Unit -eq $FunctionName)
     if ($measurements.Count -ne 1) { throw "Cannot measure function '$FunctionName' uniquely." }
 
+    if (-not $PSCmdlet.ShouldProcess($root, "Create a PSPrune batch for $FunctionName")) { return }
     $store = Get-PSPruneStore -Root $root
     $null = New-Item -ItemType Directory -Path $store -Force
     $lock = Enter-PSPruneLock -Store $store
