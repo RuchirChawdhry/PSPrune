@@ -31,7 +31,7 @@ function Measure-PSPruneSplitCandidate {
     try {
         $scoreWatch = [Diagnostics.Stopwatch]::StartNew()
         $group = Get-PSPruneGroup -Source $text -FunctionName $Batch.target.function
-        Assert-PSPruneSplitBoundary -Group $group -Batch $Batch -Root $Root -Source $Source
+        Assert-PSPruneSplitBoundary -Group $group -Batch $Batch -Root $Root
         $replacement = $Source.Substring(0, $Definition.Extent.StartOffset) +
             $text.TrimEnd() +
             $Source.Substring($Definition.Extent.EndOffset)
