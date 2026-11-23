@@ -272,8 +272,7 @@ function Submit-PSPruneCandidate {
         if ($batch.status -ne 'open') { throw "Batch '$Id' is not open." }
         if ($batch.mode -eq 'Split') {
             $group = Get-PSPruneGroup -Source $text -FunctionName $batch.target.function
-            $targetPath = Join-Path $root $batch.target.file
-            Assert-PSPruneSplitBoundary -Group $group -Batch $batch -Root $root -Source ([IO.File]::ReadAllText($targetPath))
+            Assert-PSPruneSplitBoundary -Group $group -Batch $batch -Root $root
             $ast = $group.Entry
         }
         else {
