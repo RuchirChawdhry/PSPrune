@@ -154,3 +154,45 @@ jobs:
           path: reports/self-dogfood.json
           if-no-files-found: ignore
           retention-days: 7
+
+  dogfood_2_split:
+    name: Dogfood 2.0 — split Invoke-PSPruneBatch into same-file helpers
+    runs-on: ubuntu-slim
+    timeout-minutes: 45
+    steps:
+      - name: Check out the experiment
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install PSComplexity, Pester, and PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-PSResource PSComplexity -Version '0.7.1' -Scope CurrentUser -TrustRepository -ErrorAction Stop
+          Install-PSResource Pester -Version '6.2.0' -Scope CurrentUser -TrustRepository -ErrorAction Stop
+          Install-PSResource PSScriptAnalyzer -Version '1.24.0' -Scope CurrentUser -TrustRepository -ErrorAction Stop
+
+      - name: Run five actual Split candidates through full Pester suite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $result = & ./scripts/dogfood-2-split.ps1 -OutFile reports/dogfood-2-split.json
+          if ($result -isnot [pscustomobject] -or
+              $result.Submitted -ne 5 -or
+              -not $result.ProductionUnchanged -or
+              -not $result.OutsideGroupUnchanged -or
+              -not $result.Result.validation.all_passed -or
+              -not $result.Result.applied -or
+              -not $result.Result.improved) {
+            throw 'Dogfood 2.0 failed the verified split-mode contract.'
+          }
+
+      - name: Upload complete, inspectable split experiment results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: psprune-dogfood-2-split
+          path: reports/dogfood-2-split.json
+          if-no-files-found: warn
+          retention-days: 14
