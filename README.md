@@ -231,7 +231,7 @@ $result.candidates | Select-Object slot, passed, score_duration_ms, test_duratio
 PSPrune runs the focused Pester tests on the original function and all five
 proposals. If every proposal passes, eligible proposals are ranked. Only
 the best eligible candidate runs the full regression suite. If that candidate
-fails, the next eligible candidate gets a turn. The master manifest retains
+fails, the batch is rejected by default. Use `-MaxRegressionCandidates 2` (up to 5) to try the next eligible candidate. The master manifest retains
 all scores and timing measurements. Pester subprocesses have a bounded
 runtime and their process trees are terminated on timeout.
 
