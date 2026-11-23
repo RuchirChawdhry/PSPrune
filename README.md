@@ -119,3 +119,49 @@ To reproduce the v0.2 offline end-to-end test without inference:
 ./scripts/batch-smoke.ps1
 ./scripts/batch-smoke.ps1 | ConvertTo-Json -Depth 16
 ```
+
+## Highest-complexity functions
+
+Rank a complete script or project by **cognitive complexity** (the default),
+with cyclomatic complexity as a tie-breaker. The report remains one native
+PowerShell object with a Functions array and an unfiltered FunctionCount.
+
+```powershell
+# Highest-scoring functions; use any positive limit
+(Get-PSPruneReport -Path ./src -Top 3).Functions
+(Get-PSPruneReport -Path ./src -Top 5).Functions
+(Get-PSPruneReport -Path ./src -Top 10).Functions
+
+# Prioritize by cyclomatic instead
+(Get-PSPruneReport -Path ./src -Top 5 -Metric Cyclomatic).Functions
+
+# Existing pipeline and JSON behavior still work
+Get-PSPruneReport -Path ./src -Top 10 | ConvertTo-Json -Depth 8
+```
+
+## Functions created between Git commits
+
+Use a baseline and a current commit to find **new top-level functions**
+introduced in the interval. The comparison scans the committed file contents,
+not the local working tree; uncommitted edits never affect these scores.
+Functions with names that already existed in the same path at the baseline
+are excluded, even when their implementations changed.
+
+```powershell
+$report = Get-PSPruneCommitReport -Path ./src -BaselineCommit HEAD~1 -CurrentCommit HEAD
+
+$report.Functions | Sort-Object Cognitive -Descending
+
+# Focus on the ten most complex newly introduced functions
+(Get-PSPruneCommitReport -Path . -BaselineCommit v0.2.0 -CurrentCommit HEAD -Top 10).Functions
+
+# Export explicitly when an agent requires JSON
+$report | ConvertTo-Json -Depth 8
+```
+
+Each function result includes its name, repository-relative file, line number,
+cognitive/cyclomatic scores, and ChangeType = Added. The report also contains
+the resolved full baseline/current commit SHA values, total FunctionCount, and
+ReturnedCount after applying -Top. A file rename is treated as a newly created
+path for this initial implementation. Functions only edited between commits
+are not classified as newly introduced.

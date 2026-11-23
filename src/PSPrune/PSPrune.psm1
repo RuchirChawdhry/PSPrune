@@ -38,7 +38,11 @@ function Get-PSPruneReport {
     Return per-function complexity measurements for a PowerShell file or directory.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Path)
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [ValidateRange(1, 100000)][int]$Top,
+        [ValidateSet('Cognitive', 'Cyclomatic')][string]$Metric = 'Cognitive'
+    )
 
     $resolved = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).ProviderPath
     $isDirectory = (Get-Item -LiteralPath $resolved).PSIsContainer
@@ -58,13 +62,30 @@ function Get-PSPruneReport {
             Cognitive     = [int]$_.Cognitive
             MetricVersion = [int]$_.MetricVersion
         }
-    } | Sort-Object Cognitive, Cyclomatic, Name -Descending)
+    })
+
+    $ordered = @(
+        if ($Metric -eq 'Cyclomatic') {
+            $functions | Sort-Object Cyclomatic, Cognitive -Descending
+        }
+        else {
+            $functions | Sort-Object Cognitive, Cyclomatic -Descending
+        }
+    )
+    $selected = @(
+        if ($PSBoundParameters.ContainsKey('Top')) {
+            $ordered | Select-Object -First $Top
+        }
+        else { $ordered }
+    )
 
     [pscustomobject]@{
         SchemaVersion = 1
         Scope         = $resolved
-        FunctionCount = $functions.Count
-        Functions     = $functions
+        Metric        = $Metric
+        FunctionCount = $ordered.Count
+        ReturnedCount = $selected.Count
+        Functions     = $selected
     }
 }
 
@@ -200,9 +221,11 @@ function Invoke-PSPrune {
 . (Join-Path $PSScriptRoot 'Batch.Storage.ps1')
 . (Join-Path $PSScriptRoot 'Batch.Invoke.ps1')
 . (Join-Path $PSScriptRoot 'Batch.Clean.ps1')
+. (Join-Path $PSScriptRoot 'Git.Report.ps1')
 
 Export-ModuleMember -Function @(
     'Get-PSPruneReport',
+    'Get-PSPruneCommitReport',
     'Invoke-PSPrune',
     'New-PSPruneBatch',
     'Get-PSPruneBatch',
