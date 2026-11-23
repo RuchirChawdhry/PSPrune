@@ -125,4 +125,44 @@ Describe 'PSPrune v0.3 same-file function groups' {
             Should -Throw '*source changed*'
         (Get-PSPruneBatch -Id $batch.id -Path $script:project).status | Should -Be 'open'
     }
+
+    It 'runs focused tests for all proposals and the full suite only for the winner' {
+        $batch = New-PSPruneBatch -Path $script:target -FunctionName Get-Category -ProjectPath $script:project -Mode Split -TestPath 'tests/Focused.Tests.ps1' -RegressionTestPath 'tests'
+        foreach ($slot in 1..5) {
+            $null = Submit-PSPruneCandidate -Id $batch.id -Slot $slot -SourcePath (Join-Path $script:sourceCandidates "candidate-$slot.txt") -ProjectPath $script:project
+        }
+        $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:project -Apply
+        $result.applied | Should -BeTrue
+        $result.validation.all_passed | Should -BeTrue
+        $result.validation.winner_regression_passed | Should -BeTrue
+        $result.validation.regression_test_path | Should -BeExactly 'tests'
+        @($result.candidates | Where-Object passed).Count | Should -Be 5
+        @($result.candidates | Where-Object { $null -ne $_.test_duration_ms }).Count | Should -Be 5
+        @($result.candidates | Where-Object { $_.regression_passed -eq $true }).Count | Should -Be 1
+        @($result.candidates | Where-Object { $null -ne $_.regression_duration_ms }).Count | Should -Be 1
+    }
+
+    It 'falls back to the next eligible candidate after a full-regression failure' {
+        $batch = New-PSPruneBatch -Path $script:target -FunctionName Get-Category -ProjectPath $script:project -Mode Split -TestPath 'tests/Focused.Tests.ps1' -RegressionTestPath 'tests'
+        foreach ($slot in 1..5) {
+            $file = Join-Path $script:sourceCandidates "candidate-$slot.txt"
+            if ($slot -eq 1) {
+                $wrong = Join-Path $TestDrive 'miss-boundary.ps1'
+                $text = [IO.File]::ReadAllText($file)
+                [IO.File]::WriteAllText($wrong, $text.Replace('-le -100', '-lt -100'))
+                $file = $wrong
+            }
+            $null = Submit-PSPruneCandidate -Id $batch.id -Slot $slot -SourcePath $file -ProjectPath $script:project
+        }
+        $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:project -Apply
+        $result.applied | Should -BeTrue
+        $result.selected_slot | Should -Be 2
+        $result.validation.all_passed | Should -BeTrue
+        $result.validation.winner_regression_passed | Should -BeTrue
+        $result.candidates[0].regression_passed | Should -BeFalse
+        $result.candidates[0].eligible | Should -BeFalse
+        $result.candidates[1].regression_passed | Should -BeTrue
+        $result.candidates[0].error | Should -Match 'Full regression failed'
+    }
+
 }
