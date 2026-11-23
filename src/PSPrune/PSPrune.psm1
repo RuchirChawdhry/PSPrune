@@ -64,14 +64,8 @@ function Get-PSPruneReport {
         }
     })
 
-    $ordered = @(
-        if ($Metric -eq 'Cyclomatic') {
-            $functions | Sort-Object Cyclomatic, Cognitive -Descending
-        }
-        else {
-            $functions | Sort-Object Cognitive, Cyclomatic -Descending
-        }
-    )
+    $secondary = if ($Metric -eq 'Cognitive') { 'Cyclomatic' } else { 'Cognitive' }
+    $ordered = @($functions | Sort-Object -Property $Metric, $secondary -Descending)
     $selected = @(
         if ($PSBoundParameters.ContainsKey('Top')) {
             $ordered | Select-Object -First $Top
