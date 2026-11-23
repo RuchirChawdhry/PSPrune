@@ -49,7 +49,7 @@ function Get-PSPruneGroup {
     }
 }
 
-function Get-PSPruneFunctionAttributes {
+function Get-PSPruneFunctionAttribute {
     param([Parameter(Mandatory)]$FunctionAst)
     if (-not $FunctionAst.Body.ParamBlock) { return '' }
     @($FunctionAst.Body.ParamBlock.Attributes | ForEach-Object {
@@ -66,7 +66,7 @@ function Assert-PSPruneSplitBoundary {
     )
 
     if ((Get-PSPruneSignature -FunctionAst $Group.Entry) -cne $Batch.target.signature -or
-        (Get-PSPruneFunctionAttributes -FunctionAst $Group.Entry) -cne $Batch.target.attributes -or
+        (Get-PSPruneFunctionAttribute -FunctionAst $Group.Entry) -cne $Batch.target.attributes -or
         [bool]$Group.Entry.IsFilter -ne [bool]$Batch.target.is_filter) {
         throw 'Split entry point changed its parameter or command contract.'
     }
