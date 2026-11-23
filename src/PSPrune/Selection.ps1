@@ -83,7 +83,9 @@ function Resolve-PSPruneTestPath {
     }
 
     $tests = @(Get-ChildItem -LiteralPath $testsRoot -Recurse -File -Filter '*.Tests.ps1' |
-        Where-Object { $_.FullName -notmatch '[/\\]fixtures[/\\]' })
+        Where-Object {
+            [IO.Path]::GetRelativePath($testsRoot, $_.FullName) -notmatch '(^|[/\\])fixtures[/\\]'
+        })
     if (-not $tests.Count) {
         throw "Cannot discover Pester tests in '$testsRoot'."
     }
