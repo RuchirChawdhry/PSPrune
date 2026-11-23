@@ -91,3 +91,43 @@ jobs:
             reports/batch-smoke.json
           if-no-files-found: ignore
           retention-days: 7
+
+  dogfood:
+    name: Self-analyze PSPrune complexity and Git additions
+    runs-on: ubuntu-slim
+    timeout-minutes: 15
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install complexity measurement dependency
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-PSResource PSComplexity -Version '0.7.1' -Scope CurrentUser -TrustRepository -ErrorAction Stop
+
+      - name: Run PSPrune against PSPrune
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $result = & ./scripts/self-dogfood.ps1 -BaselineCommit df64f1f82af5a9a3349cf7a3276c104c0434ee07 -CurrentCommit HEAD -OutFile reports/self-dogfood.json
+          if ($result -isnot [pscustomobject] -or $result.Project.FunctionCount -lt 1 -or
+              $result.Introduced.FunctionCount -lt 1) {
+            throw 'Self-dogfood did not generate meaningful complexity reports.'
+          }
+          if ((Get-Content -LiteralPath reports/self-dogfood.json -Raw | ConvertFrom-Json).Project.FunctionCount -ne
+              $result.Project.FunctionCount) {
+            throw 'Self-dogfood JSON export differs from native output.'
+          }
+
+      - name: Upload self-dogfood complexity reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: psprune-self-dogfood
+          path: reports/self-dogfood.json
+          if-no-files-found: ignore
+          retention-days: 7
