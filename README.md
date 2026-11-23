@@ -165,3 +165,53 @@ the resolved full baseline/current commit SHA values, total FunctionCount, and
 ReturnedCount after applying -Top. A file rename is treated as a newly created
 path for this initial implementation. Functions only edited between commits
 are not classified as newly introduced.
+
+## v0.3 — Same-file function group refactoring
+
+Use `-Mode Split` when a large function needs to be divided into smaller helpers.
+PSPrune still accepts exactly five candidate files, but each file contains one
+original entry-point function plus one or more **top-level helper functions**.
+Helpers are inserted adjacent to the entry point, in the **same source file**.
+No unrelated files are modified, and the existing single-function mode is unchanged.
+
+```powershell
+$batch = New-PSPruneBatch -ProjectPath . -Path ./src/Module.psm1 -FunctionName Get-Data -Mode Split
+
+1..5 | ForEach-Object {
+    Submit-PSPruneCandidate -Id $batch.id -Slot $_ -SourcePath "./proposals/candidate-$_.ps1"
+}
+
+$result = Invoke-PSPrune -BatchId $batch.id -ProjectPath . -Apply
+$result.candidates | Sort-Object total_cognitive, adjusted_cyclomatic
+Get-PSPruneHistory | Sort-Object CompletedAt -Descending
+```
+
+A split candidate contains only function definitions. It must preserve the
+entry-point signature and command attributes. Helper names must be unique and
+must not collide with existing project functions. For script modules, PSPrune
+requires explicit, non-wildcard `FunctionsToExport` in the module manifest so
+new helpers cannot silently become exported commands.
+
+The candidate ranking uses **group-level** measurements. A split is eligible
+only when its total cognitive complexity **and** highest individual cognitive
+complexity decrease, while its *adjusted cyclomatic complexity* does not
+increase. Adjusted cyclomatic is the sum of every function's cyclomatic score
+minus the number of extracted helpers (accounting for the extra base point
+per function). Candidates that satisfy all gates are sorted by total cognitive,
+adjusted cyclomatic, maximum cognitive, helper count, and slot. All five
+candidates must pass the project Pester suite before selection; candidates also
+receive PowerShell syntax, collision, and PSScriptAnalyzer error checks.
+
+The durable master manifest stores each function's hash and complexity values
+along with the group metrics. Candidate source remains disposable and stays on
+disk until manually cleared with `Clear-PSPruneArtifacts`. A batch rejected
+for failing tests or failing to improve the group is retained in history, too.
+
+```powershell
+# End-to-end split-mode test, using real Pester cases and an isolated project
+./scripts/split-smoke.ps1
+```
+
+PSPrune executes submitted code and project tests in subprocesses, which are
+**not security sandboxes**. Only submit trusted project code. For now, Split
+mode supports same-file extraction only, not new imports or helper files.
