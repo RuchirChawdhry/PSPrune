@@ -91,10 +91,10 @@ function Assert-PSPruneSplitBoundary {
         throw "Split mode requires explicit module exports: $(@($index.unguarded_modules) -join ', ')"
     }
     foreach ($helper in $Group.Helpers) {
-        if ($helper.Name -in @($index.names)) {
+        if ($index.names -contains $helper.Name) {
             throw "Helper '$($helper.Name)' collides with an existing project function."
         }
-        if ($helper.Name -in @($index.exports)) {
+        if ($index.exports -contains $helper.Name) {
             throw "Helper '$($helper.Name)' conflicts with a module export."
         }
     }
