@@ -59,6 +59,28 @@ try {
         $after.Substring($lastEnd)
 
     $history = @(Get-PSPruneHistory -Path $project)
+
+    # Run the complete project regression once, after the chosen Split group is applied.
+    $projectRegression = $null
+    if ($result.applied) {
+        Import-Module Pester -MinimumVersion '6.2.0' -ErrorAction Stop
+        $config = New-PesterConfiguration
+        $config.Run.Path = Join-Path $project 'tests'
+        $config.Run.PassThru = $true
+        $config.Output.Verbosity = 'None'
+        $watch = [Diagnostics.Stopwatch]::StartNew()
+        Push-Location $project
+        try { $suite = Invoke-Pester -Configuration $config }
+        finally { Pop-Location }
+        $watch.Stop()
+        $projectRegression = [pscustomobject]@{
+            Passed = $suite.Result -eq 'Passed'
+            PassedCount = $suite.PassedCount
+            FailedCount = $suite.FailedCount
+            DurationMs = $watch.ElapsedMilliseconds
+        }
+    }
+
     $evidence = [pscustomobject]@{
         SchemaVersion = 2
         Experiment = 'PSPrune Dogfood 2.0 (v0.4)'
@@ -70,6 +92,7 @@ try {
         Submitted = $submissions.Count
         Result = $result
         HistoryCount = $history.Count
+        ProjectRegression = $projectRegression
         OutsideGroupUnchanged = $beforeOutside -ceq $afterOutside
         ProductionUnchanged = $outsideHash -ceq (
             Get-FileHash -LiteralPath $originalTarget -Algorithm SHA256
@@ -95,6 +118,7 @@ try {
     if ($submissions.Count -ne 5 -or $history.Count -ne 1) {
         throw 'Dogfood experiment lost candidate submissions or history.'
     }
+    if ($result.applied -and -not $projectRegression.Passed) { throw 'Dogfood v0.4: full project regression failed.' }
     if (-not $result.applied -or -not $result.validation.winner_passed) {
         throw 'Dogfood v0.4: no passing lower-concentration Split group was applied.'
     }
