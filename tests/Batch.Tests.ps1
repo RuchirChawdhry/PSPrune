@@ -94,6 +94,23 @@ Describe 'PSPrune v0.2 batch contract' {
         (Get-PSPruneBatch -Id $batch.id -Path $script:workingProject).status | Should -BeExactly 'applied'
     }
 
+    It 'records a Single-mode dry-run without modifying the source' {
+        $before = [IO.File]::ReadAllText($script:workingFile)
+        $batch = New-PSPruneBatch -Path $script:workingFile -FunctionName Get-Label -ProjectPath $script:workingProject
+        foreach ($slot in 1..5) {
+            $file = @(Get-Item -Path (Join-Path $script:candidateFolder "$slot-*.txt"))[0].FullName
+            $null = Submit-PSPruneCandidate -Id $batch.id -Slot $slot -SourcePath $file -ProjectPath $script:workingProject
+        }
+        $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:workingProject
+        $result.status | Should -BeExactly 'evaluated'
+        $result.applied | Should -BeFalse
+        $result.validation.winner_passed | Should -BeTrue
+        $result.validation.baseline_passed | Should -BeNullOrEmpty
+        $result.PSObject.Properties.Name | Should -Not -Contain 'mode'
+        [IO.File]::ReadAllText($script:workingFile) | Should -BeExactly $before
+        @((Get-PSPruneHistory -Path $script:workingProject)).Count | Should -Be 1
+    }
+
     It 'archives a failed candidate batch and leaves the source unchanged' {
         $original = [IO.File]::ReadAllText($script:workingFile)
         $batch = New-PSPruneBatch -Path $script:workingFile -FunctionName Get-Label -ProjectPath $script:workingProject
