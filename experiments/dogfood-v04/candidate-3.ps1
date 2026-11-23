@@ -248,7 +248,7 @@ function Get-PSPruneSingleRecord {
             winner_regression_passed = if ($batch.regression_test_path) { [bool]$winner } else { $null }
             regression_attempt_count = @($results | Where-Object { $null -ne $_.regression_passed }).Count
         }
-        candidates = $results.ToArray()
+        candidates = @($results)
         selected_slot = if ($null -ne $winner) { $winner.slot } else { $null }
         improved = [bool]$improved
         applied = $false
