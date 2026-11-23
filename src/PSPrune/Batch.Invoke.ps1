@@ -84,9 +84,6 @@ function Invoke-PSPruneBatch {
     $batchDir = Get-PSPruneBatchPath -Root $root -Id $Id
     $batchManifest = Join-Path $batchDir 'manifest.json'
     $batch = Get-PSPruneJson -Path $batchManifest
-    if ($batch.mode -eq 'Split') {
-        return Invoke-PSPruneSplitBatch -Id $Id -ProjectPath $root -Apply:$Apply
-    }
     if ($batch.status -ne 'open') { throw "Batch '$Id' is already finalized." }
 
     $target = Join-Path $root $batch.target.file
@@ -99,73 +96,89 @@ function Invoke-PSPruneBatch {
         throw 'Original function fingerprint changed after batch creation.'
     }
     $paths = @(1..5 | ForEach-Object { Join-Path $batchDir "candidate-$_.ps1" })
+    $modeLabel = if ($batch.mode -eq 'Split') { 'Split ' } else { '' }
     foreach ($candidatePath in $paths) {
         if (-not (Test-Path -LiteralPath $candidatePath -PathType Leaf)) {
-            throw "Incomplete batch: missing $candidatePath"
+            throw "Incomplete ${modeLabel}batch: missing $candidatePath"
         }
     }
 
     $timeout = if ($batch.test_timeout_seconds) { [int]$batch.test_timeout_seconds } else { 300 }
     Import-Module PSComplexity -MinimumVersion '0.7.1' -ErrorAction Stop
 
-    $results = [Collections.Generic.List[object]]::new()
     $replacements = @{}
-    for ($index = 1; $index -le 5; $index++) {
-        $candidatePath = $paths[$index - 1]
-        $candidateSource = [IO.File]::ReadAllText($candidatePath)
-        $cognitive = $null
-        $cyclomatic = $null
-        $errorMessage = $null
-        $scoreWatch = [Diagnostics.Stopwatch]::StartNew()
-        try {
-            $candidateAst = Get-PSPruneAst -Source $candidateSource -FunctionName $batch.target.function -SingleFunction
-            if ((Get-PSPruneSignature -FunctionAst $candidateAst) -cne $batch.target.signature) {
-                throw 'Candidate signature does not match original.'
-            }
-            $replacement = $source.Substring(0, $definition.Extent.StartOffset) +
-                $candidateSource.TrimEnd() +
-                $source.Substring($definition.Extent.EndOffset)
-            $scoring = Join-Path ([IO.Path]::GetTempPath()) ('psprune-score-' + [guid]::NewGuid().ToString('N') + '.ps1')
-            try {
-                [IO.File]::WriteAllText($scoring, $replacement, [Text.UTF8Encoding]::new($false))
-                $scores = @(Measure-PSComplexity -Path $scoring -ErrorAction Stop |
-                    Where-Object Unit -eq $batch.target.function)
-                if ($scores.Count -ne 1) { throw 'Could not measure candidate uniquely.' }
-                $cognitive = [int]$scores[0].Cognitive
-                $cyclomatic = [int]$scores[0].Cyclomatic
-            }
-            finally {
-                if (Test-Path -LiteralPath $scoring) { Remove-Item -LiteralPath $scoring -Force }
-            }
-            $replacements[$index] = $replacement
-        }
-        catch { $errorMessage = $_.Exception.Message }
-        $scoreWatch.Stop()
-        $eligible = $null -eq $errorMessage -and (
-            $cognitive -lt $batch.original.cognitive -or (
-                $cognitive -eq $batch.original.cognitive -and
-                $cyclomatic -lt $batch.original.cyclomatic
-            )
-        )
-        $results.Add([pscustomobject]@{
-            slot = $index
-            sha256 = Get-PSPruneFileDigest -Path $candidatePath
-            passed = $null
-            tested = $false
-            eligible = [bool]$eligible
-            cyclomatic = $cyclomatic
-            cognitive = $cognitive
-            score_duration_ms = $scoreWatch.ElapsedMilliseconds
-            test_duration_ms = $null
-            regression_passed = $null
-            regression_duration_ms = $null
-            error = $errorMessage
+    if ($batch.mode -eq 'Split') {
+        Import-Module PSScriptAnalyzer -ErrorAction Stop
+        $evaluations = @(for ($slot = 1; $slot -le 5; $slot++) {
+            Measure-PSPruneSplitCandidate -Path $paths[$slot - 1] -Slot $slot -Batch $batch -Root $root -Source $source -Definition $definition
         })
+        $results = @($evaluations | ForEach-Object Result)
+        foreach ($evaluation in $evaluations) {
+            $replacements[$evaluation.Result.slot] = $evaluation.Replacement
+        }
+        $sortBy = @('concentration_score', 'max_cognitive', 'helper_count', 'slot')
+    }
+    else {
+        $results = [Collections.Generic.List[object]]::new()
+        for ($index = 1; $index -le 5; $index++) {
+            $candidatePath = $paths[$index - 1]
+            $candidateSource = [IO.File]::ReadAllText($candidatePath)
+            $cognitive = $null
+            $cyclomatic = $null
+            $errorMessage = $null
+            $scoreWatch = [Diagnostics.Stopwatch]::StartNew()
+            try {
+                $candidateAst = Get-PSPruneAst -Source $candidateSource -FunctionName $batch.target.function -SingleFunction
+                if ((Get-PSPruneSignature -FunctionAst $candidateAst) -cne $batch.target.signature) {
+                    throw 'Candidate signature does not match original.'
+                }
+                $replacement = $source.Substring(0, $definition.Extent.StartOffset) +
+                    $candidateSource.TrimEnd() +
+                    $source.Substring($definition.Extent.EndOffset)
+                $scoring = Join-Path ([IO.Path]::GetTempPath()) ('psprune-score-' + [guid]::NewGuid().ToString('N') + '.ps1')
+                try {
+                    [IO.File]::WriteAllText($scoring, $replacement, [Text.UTF8Encoding]::new($false))
+                    $scores = @(Measure-PSComplexity -Path $scoring -ErrorAction Stop |
+                        Where-Object Unit -eq $batch.target.function)
+                    if ($scores.Count -ne 1) { throw 'Could not measure candidate uniquely.' }
+                    $cognitive = [int]$scores[0].Cognitive
+                    $cyclomatic = [int]$scores[0].Cyclomatic
+                }
+                finally {
+                    if (Test-Path -LiteralPath $scoring) { Remove-Item -LiteralPath $scoring -Force }
+                }
+                $replacements[$index] = $replacement
+            }
+            catch { $errorMessage = $_.Exception.Message }
+            $scoreWatch.Stop()
+            $eligible = $null -eq $errorMessage -and (
+                $cognitive -lt $batch.original.cognitive -or (
+                    $cognitive -eq $batch.original.cognitive -and
+                    $cyclomatic -lt $batch.original.cyclomatic
+                )
+            )
+            $results.Add([pscustomobject]@{
+                slot = $index
+                sha256 = Get-PSPruneFileDigest -Path $candidatePath
+                passed = $null
+                tested = $false
+                eligible = [bool]$eligible
+                cyclomatic = $cyclomatic
+                cognitive = $cognitive
+                score_duration_ms = $scoreWatch.ElapsedMilliseconds
+                test_duration_ms = $null
+                regression_passed = $null
+                regression_duration_ms = $null
+                error = $errorMessage
+            })
+        }
+        $results = $results.ToArray()
+        $sortBy = @('cognitive', 'cyclomatic', 'slot')
     }
 
     $winner = $null
     $eligibleCandidates = @($results | Where-Object eligible |
-        Sort-Object cognitive, cyclomatic, slot)
+        Sort-Object -Property $sortBy)
     foreach ($proposal in $eligibleCandidates) {
         $test = Invoke-PSPrunePester -ProjectRoot $root -RelativeTestPath $batch.test_path -RelativeTargetPath $batch.target.file -Replacement $replacements[$proposal.slot] -TimeoutSeconds $timeout
         $proposal.tested = $true
@@ -191,7 +204,7 @@ function Invoke-PSPruneBatch {
         break
     }
     $replacement = if ($winner) { $replacements[$winner.slot] } else { $null }
-    Complete-PSPruneBatch -Batch $batch -Root $root -Candidates $results.ToArray() -Winner $winner -Replacement $replacement -Apply:$Apply
+    Complete-PSPruneBatch -Batch $batch -Root $root -Candidates $results -Winner $winner -Replacement $replacement -Apply:$Apply
 }
 
 function Complete-PSPruneBatch {
