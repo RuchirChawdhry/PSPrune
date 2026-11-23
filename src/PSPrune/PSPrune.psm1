@@ -220,19 +220,5 @@ function Invoke-PSPrune {
 
 . (Join-Path $PSScriptRoot 'Batch.Storage.ps1')
 . (Join-Path $PSScriptRoot 'Batch.Invoke.ps1')
-. (Join-Path $PSScriptRoot 'Batch.Clean.ps1')
-. (Join-Path $PSScriptRoot 'Selection.ps1')
-. (Join-Path $PSScriptRoot 'Group.Parse.ps1')
-. (Join-Path $PSScriptRoot 'Group.Invoke.ps1')
+. (Join-Path $PSScriptRoot 'Split.ps1')
 . (Join-Path $PSScriptRoot 'Git.Report.ps1')
-
-Export-ModuleMember -Function @(
-    'Get-PSPruneReport',
-    'Get-PSPruneCommitReport',
-    'Invoke-PSPrune',
-    'New-PSPruneBatch',
-    'Get-PSPruneBatch',
-    'Get-PSPruneHistory',
-    'Submit-PSPruneCandidate',
-    'Clear-PSPruneArtifacts'
-)

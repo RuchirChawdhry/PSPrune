@@ -1,3 +1,16 @@
+function Get-PSPruneConcentrationScore {
+    param(
+        [Parameter(Mandatory)][int[]]$CognitiveScores,
+        [ValidateRange(0, 100000)][int]$HelperPenalty = 25
+    )
+    if (-not $CognitiveScores.Count) { throw 'At least one cognitive score is required.' }
+    $squared = 0L
+    foreach ($score in $CognitiveScores) {
+        $squared += [long]$score * $score
+    }
+    $squared + [long]$HelperPenalty * ($CognitiveScores.Count - 1)
+}
+
 function Get-PSPruneGroup {
     param(
         [Parameter(Mandatory)][string]$Source,
@@ -119,5 +132,84 @@ function Get-PSPruneSplitScore {
         concentration_score = Get-PSPruneConcentrationScore -CognitiveScores @($scores | ForEach-Object cognitive)
         helper_penalty = 25
         functions = $scores
+    }
+}
+
+function Measure-PSPruneSplitCandidate {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][int]$Slot,
+        [Parameter(Mandatory)]$Batch,
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)]$Definition
+    )
+
+    $text = [IO.File]::ReadAllText($Path)
+    $result = [ordered]@{
+        slot = $Slot
+        sha256 = Get-PSPruneFileDigest -Path $Path
+        passed = $null
+        tested = $false
+        eligible = $false
+        total_cognitive = $null
+        concentration_score = $null
+        max_cognitive = $null
+        adjusted_cyclomatic = $null
+        helper_count = $null
+        functions = @()
+        score_duration_ms = $null
+        test_duration_ms = $null
+        regression_passed = $null
+        regression_duration_ms = $null
+        error = $null
+    }
+
+    try {
+        $scoreWatch = [Diagnostics.Stopwatch]::StartNew()
+        $group = Get-PSPruneGroup -Source $text -FunctionName $Batch.target.function
+        Assert-PSPruneSplitBoundary -Group $group -Batch $Batch -Root $Root
+        $replacement = $Source.Substring(0, $Definition.Extent.StartOffset) +
+            $text.TrimEnd() +
+            $Source.Substring($Definition.Extent.EndOffset)
+        $temporary = Join-Path ([IO.Path]::GetTempPath()) (
+            'psprune-split-score-' + [guid]::NewGuid().ToString('N') +
+            [IO.Path]::GetExtension($Batch.target.file)
+        )
+        try {
+            [IO.File]::WriteAllText($temporary, $replacement, [Text.UTF8Encoding]::new($false))
+            $issues = @(Invoke-ScriptAnalyzer -Path $temporary -Severity Error -ErrorAction Stop)
+            if ($issues.Count) {
+                throw "PSScriptAnalyzer rejected candidate: $($issues[0].Message)"
+            }
+            $score = Get-PSPruneSplitScore -Group $group -File $temporary
+        }
+        finally {
+            if (Test-Path -LiteralPath $temporary) {
+                Remove-Item -LiteralPath $temporary -Force
+            }
+        }
+
+        $scoreWatch.Stop()
+        $result.score_duration_ms = $scoreWatch.ElapsedMilliseconds
+        $result.total_cognitive = $score.total_cognitive
+        $result.concentration_score = $score.concentration_score
+        $result.max_cognitive = $score.max_cognitive
+        $result.adjusted_cyclomatic = $score.adjusted_cyclomatic
+        $result.helper_count = $score.helper_count
+        $result.functions = $score.functions
+
+        $result.eligible = $score.concentration_score -lt $Batch.original.concentration_score
+        [pscustomobject]@{
+            Result = [pscustomobject]$result
+            Replacement = $replacement
+        }
+    }
+    catch {
+        $result.error = $_.Exception.Message
+        [pscustomobject]@{
+            Result = [pscustomobject]$result
+            Replacement = $null
+        }
     }
 }

@@ -71,12 +71,29 @@ Describe 'PSPrune v0.3 same-file function groups' {
             Should -BeExactly $script:original.Substring(0, $script:original.IndexOf('function Get-Category'))
         $history = @(Get-PSPruneHistory -Path $script:project)
         $history.Count | Should -Be 1
+        $history[0].mode | Should -BeExactly 'Split'
+        $history[0].validation.baseline_passed | Should -BeTrue
         $history[0].candidates[0].functions[1].sha256 | Should -Match '^[0-9a-f]{64}$'
         $master = Join-Path $script:project '.psprune/manifest.json'
         $manifest = [IO.File]::ReadAllText($master)
         (Test-Path -LiteralPath (Join-Path $script:project ".psprune/batches/$($batch.id)/candidate-1.ps1")) | Should -BeTrue
         @(Clear-PSPruneArtifacts -Path $script:project -BatchId $batch.id -Confirm:$false)[0].Removed | Should -BeTrue
         [IO.File]::ReadAllText($master) | Should -BeExactly $manifest
+    }
+
+    It 'records a Split-mode dry-run without modifying the source' {
+        $batch = New-PSPruneBatch -Path $script:target -FunctionName Get-Category -ProjectPath $script:project -Mode Split
+        foreach ($slot in 1..5) {
+            $null = Submit-PSPruneCandidate -Id $batch.id -Slot $slot -SourcePath (Join-Path $script:sourceCandidates "candidate-$slot.txt") -ProjectPath $script:project
+        }
+        $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:project
+        $result.status | Should -BeExactly 'evaluated'
+        $result.mode | Should -BeExactly 'Split'
+        $result.applied | Should -BeFalse
+        $result.validation.winner_passed | Should -BeTrue
+        $result.validation.baseline_passed | Should -BeTrue
+        [IO.File]::ReadAllText($script:target) | Should -BeExactly $script:original
+        @((Get-PSPruneHistory -Path $script:project)).Count | Should -Be 1
     }
 
     It 'rejects a behavior-changing helper while preserving original source' {
