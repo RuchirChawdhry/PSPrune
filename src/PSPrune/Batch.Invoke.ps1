@@ -58,6 +58,9 @@ function Invoke-PSPruneBatch {
     $batchDir = Get-PSPruneBatchPath -Root $root -Id $Id
     $batchManifest = Join-Path $batchDir 'manifest.json'
     $batch = Get-PSPruneJson -Path $batchManifest
+    if ($batch.mode -eq 'Split') {
+        return Invoke-PSPruneSplitBatch -Id $Id -ProjectPath $root -Apply:$Apply
+    }
     if ($batch.status -ne 'open') { throw "Batch '$Id' is already finalized." }
 
     $target = Join-Path $root $batch.target.file
