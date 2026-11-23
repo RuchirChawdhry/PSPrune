@@ -263,7 +263,7 @@ function Complete-PSPruneBatch {
         }
         $masterPath = Get-PSPruneMasterPath -Root $Root
         $master = Get-PSPruneJson -Path $masterPath
-        if (@($master.batches | Where-Object Id -eq $id).Count) {
+        if ($master.batches -and $master.batches.id -contains $id) {
             throw "Batch '$id' already exists in master history."
         }
 
