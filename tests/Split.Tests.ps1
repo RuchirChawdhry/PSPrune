@@ -143,7 +143,7 @@ Describe 'PSPrune v0.3 same-file function groups' {
     }
 
     It 'falls back to the next eligible candidate after a full-regression failure' {
-        $batch = New-PSPruneBatch -Path $script:target -FunctionName Get-Category -ProjectPath $script:project -Mode Split -TestPath 'tests/Focused.Tests.ps1' -RegressionTestPath 'tests'
+        $batch = New-PSPruneBatch -Path $script:target -FunctionName Get-Category -ProjectPath $script:project -Mode Split -TestPath 'tests/Focused.Tests.ps1' -RegressionTestPath 'tests' -MaxRegressionCandidates 2
         foreach ($slot in 1..5) {
             $file = Join-Path $script:sourceCandidates "candidate-$slot.txt"
             if ($slot -eq 1) {

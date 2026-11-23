@@ -121,6 +121,7 @@ function Complete-PSPruneSplitBatch {
             baseline_passed = $true
             all_passed = $allPassed
             winner_regression_passed = if ($Batch.regression_test_path) { [bool]$Winner } else { $null }
+            regression_attempt_count = @($Candidates | Where-Object { $null -ne $_.regression_passed }).Count
         }
         candidates = @($Candidates)
         selected_slot = if ($improved) { $Winner.slot } else { $null }
@@ -217,11 +218,15 @@ function Invoke-PSPruneSplitBatch {
     if ($allPassed) {
         $ranked = @($candidates | Where-Object eligible |
             Sort-Object total_cognitive, adjusted_cyclomatic, max_cognitive, helper_count, slot)
+        $regressionAttempts = 0
+        $regressionLimit = if ($batch.max_regression_candidates) { [int]$batch.max_regression_candidates } else { 1 }
         foreach ($proposal in $ranked) {
+            if ($batch.regression_test_path -and $regressionAttempts -ge $regressionLimit) { break }
             $candidateReplacement = @($evaluations |
                 Where-Object { $_.Result.slot -eq $proposal.slot })[0].Replacement
 
             if ($batch.regression_test_path) {
+                $regressionAttempts++
                 $verified = Invoke-PSPrunePester -ProjectRoot $root -RelativeTestPath $batch.regression_test_path -RelativeTargetPath $batch.target.file -Replacement $candidateReplacement -TimeoutSeconds $timeout
                 $proposal.regression_passed = $verified.Passed
                 $proposal.regression_duration_ms = $verified.DurationMs

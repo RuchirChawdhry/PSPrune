@@ -179,8 +179,12 @@ function Invoke-PSPruneBatch {
             )
         } | Sort-Object cognitive, cyclomatic, slot)
 
+        $regressionAttempts = 0
+        $regressionLimit = if ($batch.max_regression_candidates) { [int]$batch.max_regression_candidates } else { 1 }
         foreach ($proposal in $eligible) {
             if ($batch.regression_test_path) {
+                if ($regressionAttempts -ge $regressionLimit) { break }
+                $regressionAttempts++
                 $verified = Invoke-PSPrunePester -ProjectRoot $root -RelativeTestPath $batch.regression_test_path -RelativeTargetPath $batch.target.file -Replacement $replacements[$proposal.slot] -TimeoutSeconds $timeout
                 $proposal.regression_passed = $verified.Passed
                 $proposal.regression_duration_ms = $verified.DurationMs
@@ -214,6 +218,7 @@ function Invoke-PSPruneBatch {
             baseline_passed = $true
             all_passed = $allPassed
             winner_regression_passed = if ($batch.regression_test_path) { [bool]$winner } else { $null }
+            regression_attempt_count = @($results | Where-Object { $null -ne $_.regression_passed }).Count
         }
         candidates = $results.ToArray()
         selected_slot = if ($null -ne $winner) { $winner.slot } else { $null }

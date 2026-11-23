@@ -119,6 +119,7 @@ function New-PSPruneBatch {
         [string]$TestPath = 'tests',
         [string]$RegressionTestPath,
         [ValidateRange(5, 3600)][int]$TestTimeoutSeconds = 300,
+        [ValidateRange(1, 5)][int]$MaxRegressionCandidates = 1,
         [ValidateSet('Single', 'Split')][string]$Mode = 'Single'
     )
     $root = (Resolve-Path -LiteralPath $ProjectPath -ErrorAction Stop).ProviderPath
@@ -192,6 +193,7 @@ function New-PSPruneBatch {
             test_path = $relativeTests
             regression_test_path = $relativeRegressionTests
             test_timeout_seconds = $TestTimeoutSeconds
+            max_regression_candidates = $MaxRegressionCandidates
             target = [ordered]@{
                 file = $relative
                 function = $FunctionName
