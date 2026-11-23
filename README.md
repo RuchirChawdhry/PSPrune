@@ -86,7 +86,7 @@ $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath . -Apply
 
 # Native objects by default; opt into JSON through the usual pipeline.
 $result.candidates | Sort-Object cognitive
-Get-PSPruneHistory -Path ./src | Sort-Object completed_at -Descending
+Get-PSPruneHistory -Path ./src | Sort-Object CompletedAt -Descending
 $result | ConvertTo-Json -Depth 12
 
 # Manual cleanup never deletes permanent history.
