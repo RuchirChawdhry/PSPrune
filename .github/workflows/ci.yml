@@ -131,3 +131,48 @@ jobs:
           path: reports/self-dogfood.json
           if-no-files-found: ignore
           retention-days: 7
+
+  self_refactor:
+    name: Dogfood five candidates against PSPrune itself
+    runs-on: ubuntu-slim
+    timeout-minutes: 30
+    steps:
+      - name: Check out experiment branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install complexity scoring and Pester
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-PSResource PSComplexity -Version '0.7.1' -Scope CurrentUser -TrustRepository -ErrorAction Stop
+          Install-PSResource Pester -Version '6.2.0' -Scope CurrentUser -TrustRepository -ErrorAction Stop
+          Import-Module PSComplexity -RequiredVersion '0.7.1' -ErrorAction Stop
+          Import-Module Pester -RequiredVersion '6.2.0' -ErrorAction Stop
+
+      - name: Submit five self-refactoring implementations and evaluate them
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidence = & ./scripts/refactor-self-experiment.ps1 -OutFile reports/self-refactor.json
+          if ($evidence -isnot [pscustomobject] -or
+              -not $evidence.Result.validation.all_passed -or
+              -not $evidence.Result.applied -or
+              -not $evidence.OnlyTargetChanged -or
+              -not $evidence.OuterProjectUnchanged) {
+            throw 'Self-refactoring batch did not satisfy verification contract.'
+          }
+          $roundTrip = Get-Content -LiteralPath reports/self-refactor.json -Raw | ConvertFrom-Json
+          if ($roundTrip.Result.candidates.Count -ne 5) {
+            throw 'Self-refactoring JSON artifact lost candidate results.'
+          }
+
+      - name: Retain scored experiment evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: psprune-self-refactor
+          path: reports/self-refactor.json
+          if-no-files-found: warn
+          retention-days: 7
