@@ -120,14 +120,8 @@ function Get-PSPruneCommitReport {
     }
     finally { Remove-Item -LiteralPath $scratch -Recurse -Force }
 
-    $ordered = @(
-        if ($Metric -eq 'Cyclomatic') {
-            $records | Sort-Object Cyclomatic, Cognitive -Descending
-        }
-        else {
-            $records | Sort-Object Cognitive, Cyclomatic -Descending
-        }
-    )
+    $secondary = if ($Metric -eq 'Cognitive') { 'Cyclomatic' } else { 'Cognitive' }
+    $ordered = @($records | Sort-Object -Property $Metric, $secondary -Descending)
     $selected = @(
         if ($PSBoundParameters.ContainsKey('Top')) {
             $ordered | Select-Object -First $Top
