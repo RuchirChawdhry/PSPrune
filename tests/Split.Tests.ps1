@@ -71,6 +71,8 @@ Describe 'PSPrune v0.3 same-file function groups' {
             Should -BeExactly $script:original.Substring(0, $script:original.IndexOf('function Get-Category'))
         $history = @(Get-PSPruneHistory -Path $script:project)
         $history.Count | Should -Be 1
+        $history[0].mode | Should -BeExactly 'Split'
+        $history[0].validation.baseline_passed | Should -BeTrue
         $history[0].candidates[0].functions[1].sha256 | Should -Match '^[0-9a-f]{64}$'
         $master = Join-Path $script:project '.psprune/manifest.json'
         $manifest = [IO.File]::ReadAllText($master)
