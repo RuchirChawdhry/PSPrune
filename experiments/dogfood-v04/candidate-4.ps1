@@ -166,11 +166,9 @@ function Complete-PSPruneSingleBatch {
     $batchManifest = $Context.BatchManifest
     $batch = $Context.Batch
     $target = $Context.Target
-    $results = $Scored.Results
     $replacements = $Scored.Replacements
     $winner = $Selected.Winner
     $improved = $Selected.Improved
-    $testedCandidates = $Selected.TestedCandidates
     $record = Get-PSPruneSingleRecord -Context $Context -Scored $Scored -Selected $Selected -Apply:$Apply
     $lock = Enter-PSPruneLock -Store $store
     try {
@@ -210,13 +208,8 @@ function Complete-PSPruneSingleBatch {
 function Get-PSPruneSingleRecord {
     param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Scored, [Parameter(Mandatory)]$Selected, [switch]$Apply)
     $Id = $Context.Id
-    $root = $Context.Root
-    $store = $Context.Store
-    $batchManifest = $Context.BatchManifest
     $batch = $Context.Batch
-    $target = $Context.Target
     $results = $Scored.Results
-    $replacements = $Scored.Replacements
     $winner = $Selected.Winner
     $improved = $Selected.Improved
     $testedCandidates = $Selected.TestedCandidates
