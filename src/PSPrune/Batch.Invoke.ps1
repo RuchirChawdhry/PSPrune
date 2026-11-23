@@ -4,7 +4,7 @@ function Invoke-PSPrunePester {
         [string]$RelativeTestPath,
         [string]$RelativeTargetPath,
         [string]$Replacement,
-        [ValidateRange(5, 3600)][int]$TimeoutSeconds = 120
+        [ValidateRange(5, 3600)][int]$TimeoutSeconds = 300
     )
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $scratch = Join-Path ([IO.Path]::GetTempPath()) ('psprune-suite-' + [guid]::NewGuid().ToString('N'))
