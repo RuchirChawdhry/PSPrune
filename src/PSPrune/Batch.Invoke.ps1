@@ -106,74 +106,72 @@ function Invoke-PSPruneBatch {
     $timeout = if ($batch.test_timeout_seconds) { [int]$batch.test_timeout_seconds } else { 300 }
     Import-Module PSComplexity -MinimumVersion '0.7.1' -ErrorAction Stop
 
+    $results = [Collections.Generic.List[object]]::new()
     $replacements = @{}
-    if ($batch.mode -eq 'Split') {
-        Import-Module PSScriptAnalyzer -ErrorAction Stop
-        $evaluations = @(for ($slot = 1; $slot -le 5; $slot++) {
-            Measure-PSPruneSplitCandidate -Path $paths[$slot - 1] -Slot $slot -Batch $batch -Root $root -Source $source -Definition $definition
-        })
-        $results = @($evaluations | ForEach-Object Result)
-        foreach ($evaluation in $evaluations) {
-            $replacements[$evaluation.Result.slot] = $evaluation.Replacement
+    if ($batch.mode -eq 'Split') { Import-Module PSScriptAnalyzer -ErrorAction Stop }
+
+    for ($index = 1; $index -le 5; $index++) {
+        if ($batch.mode -eq 'Split') {
+            $evaluation = Measure-PSPruneSplitCandidate -Path $paths[$index - 1] -Slot $index -Batch $batch -Root $root -Source $source -Definition $definition
+            $results.Add($evaluation.Result)
+            $replacements[$index] = $evaluation.Replacement
+            continue
         }
-        $sortBy = @('concentration_score', 'max_cognitive', 'helper_count', 'slot')
-    }
-    else {
-        $results = [Collections.Generic.List[object]]::new()
-        for ($index = 1; $index -le 5; $index++) {
-            $candidatePath = $paths[$index - 1]
-            $candidateSource = [IO.File]::ReadAllText($candidatePath)
-            $cognitive = $null
-            $cyclomatic = $null
-            $errorMessage = $null
-            $scoreWatch = [Diagnostics.Stopwatch]::StartNew()
-            try {
-                $candidateAst = Get-PSPruneAst -Source $candidateSource -FunctionName $batch.target.function -SingleFunction
-                if ((Get-PSPruneSignature -FunctionAst $candidateAst) -cne $batch.target.signature) {
-                    throw 'Candidate signature does not match original.'
-                }
-                $replacement = $source.Substring(0, $definition.Extent.StartOffset) +
-                    $candidateSource.TrimEnd() +
-                    $source.Substring($definition.Extent.EndOffset)
-                $scoring = Join-Path ([IO.Path]::GetTempPath()) ('psprune-score-' + [guid]::NewGuid().ToString('N') + '.ps1')
-                try {
-                    [IO.File]::WriteAllText($scoring, $replacement, [Text.UTF8Encoding]::new($false))
-                    $scores = @(Measure-PSComplexity -Path $scoring -ErrorAction Stop |
-                        Where-Object Unit -eq $batch.target.function)
-                    if ($scores.Count -ne 1) { throw 'Could not measure candidate uniquely.' }
-                    $cognitive = [int]$scores[0].Cognitive
-                    $cyclomatic = [int]$scores[0].Cyclomatic
-                }
-                finally {
-                    if (Test-Path -LiteralPath $scoring) { Remove-Item -LiteralPath $scoring -Force }
-                }
-                $replacements[$index] = $replacement
+        $candidatePath = $paths[$index - 1]
+        $candidateSource = [IO.File]::ReadAllText($candidatePath)
+        $cognitive = $null
+        $cyclomatic = $null
+        $errorMessage = $null
+        $scoreWatch = [Diagnostics.Stopwatch]::StartNew()
+        try {
+            $candidateAst = Get-PSPruneAst -Source $candidateSource -FunctionName $batch.target.function -SingleFunction
+            if ((Get-PSPruneSignature -FunctionAst $candidateAst) -cne $batch.target.signature) {
+                throw 'Candidate signature does not match original.'
             }
-            catch { $errorMessage = $_.Exception.Message }
-            $scoreWatch.Stop()
-            $eligible = $null -eq $errorMessage -and (
-                $cognitive -lt $batch.original.cognitive -or (
-                    $cognitive -eq $batch.original.cognitive -and
-                    $cyclomatic -lt $batch.original.cyclomatic
-                )
-            )
-            $results.Add([pscustomobject]@{
-                slot = $index
-                sha256 = Get-PSPruneFileDigest -Path $candidatePath
-                passed = $null
-                tested = $false
-                eligible = [bool]$eligible
-                cyclomatic = $cyclomatic
-                cognitive = $cognitive
-                score_duration_ms = $scoreWatch.ElapsedMilliseconds
-                test_duration_ms = $null
-                regression_passed = $null
-                regression_duration_ms = $null
-                error = $errorMessage
-            })
+            $replacement = $source.Substring(0, $definition.Extent.StartOffset) +
+                $candidateSource.TrimEnd() +
+                $source.Substring($definition.Extent.EndOffset)
+            $scoring = Join-Path ([IO.Path]::GetTempPath()) ('psprune-score-' + [guid]::NewGuid().ToString('N') + '.ps1')
+            try {
+                [IO.File]::WriteAllText($scoring, $replacement, [Text.UTF8Encoding]::new($false))
+                $scores = @(Measure-PSComplexity -Path $scoring -ErrorAction Stop |
+                    Where-Object Unit -eq $batch.target.function)
+                if ($scores.Count -ne 1) { throw 'Could not measure candidate uniquely.' }
+                $cognitive = [int]$scores[0].Cognitive
+                $cyclomatic = [int]$scores[0].Cyclomatic
+            }
+            finally {
+                if (Test-Path -LiteralPath $scoring) { Remove-Item -LiteralPath $scoring -Force }
+            }
+            $replacements[$index] = $replacement
         }
-        $results = $results.ToArray()
-        $sortBy = @('cognitive', 'cyclomatic', 'slot')
+        catch { $errorMessage = $_.Exception.Message }
+        $scoreWatch.Stop()
+        $eligible = $null -eq $errorMessage -and (
+            $cognitive -lt $batch.original.cognitive -or (
+                $cognitive -eq $batch.original.cognitive -and
+                $cyclomatic -lt $batch.original.cyclomatic
+            )
+        )
+        $results.Add([pscustomobject]@{
+            slot = $index
+            sha256 = Get-PSPruneFileDigest -Path $candidatePath
+            passed = $null
+            tested = $false
+            eligible = [bool]$eligible
+            cyclomatic = $cyclomatic
+            cognitive = $cognitive
+            score_duration_ms = $scoreWatch.ElapsedMilliseconds
+            test_duration_ms = $null
+            regression_passed = $null
+            regression_duration_ms = $null
+            error = $errorMessage
+        })
+    }
+
+    $sortBy = @('cognitive', 'cyclomatic', 'slot')
+    if ($batch.mode -eq 'Split') {
+        $sortBy = @('concentration_score', 'max_cognitive', 'helper_count', 'slot')
     }
 
     $winner = $null
@@ -204,7 +202,7 @@ function Invoke-PSPruneBatch {
         break
     }
     $replacement = if ($winner) { $replacements[$winner.slot] } else { $null }
-    Complete-PSPruneBatch -Batch $batch -Root $root -Candidates $results -Winner $winner -Replacement $replacement -Apply:$Apply
+    Complete-PSPruneBatch -Batch $batch -Root $root -Candidates $results.ToArray() -Winner $winner -Replacement $replacement -Apply:$Apply
 }
 
 function Complete-PSPruneBatch {
