@@ -154,3 +154,44 @@ jobs:
           path: reports/self-dogfood.json
           if-no-files-found: ignore
           retention-days: 7
+
+  dogfood_v04:
+    name: Dogfood 2.0 — fresh Split candidates with rank-first Pester
+    runs-on: ubuntu-slim
+    timeout-minutes: 12
+    steps:
+      - name: Check out experiment
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install PSComplexity, Pester, and PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-PSResource PSComplexity -Version '0.7.1' -Scope CurrentUser -TrustRepository -ErrorAction Stop
+          Install-PSResource Pester -Version '6.2.0' -Scope CurrentUser -TrustRepository -ErrorAction Stop
+          Install-PSResource PSScriptAnalyzer -Version '1.24.0' -Scope CurrentUser -TrustRepository -ErrorAction Stop
+
+      - name: Score five fresh Split proposals and test only the ranked winner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $result = & ./scripts/dogfood-v04.ps1 -OutFile reports/dogfood-v04.json
+          if ($result -isnot [pscustomobject] -or
+              -not $result.Result.applied -or
+              -not $result.Result.validation.winner_passed -or
+              -not $result.ProductionUnchanged -or
+              -not $result.OutsideGroupUnchanged -or
+              $result.Submitted -ne 5) {
+            throw 'Dogfood 2.0 v0.4 failed its refactoring contract.'
+          }
+
+      - name: Upload Dogfood 2.0 evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: psprune-dogfood-v04
+          path: reports/dogfood-v04.json
+          if-no-files-found: warn
+          retention-days: 14
