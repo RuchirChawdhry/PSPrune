@@ -1,0 +1,13 @@
+function Get-Label {
+    param([int]$Number)
+    if ($Number -ge 100) {
+        return 'large'
+    }
+    elseif ($Number -gt 0) {
+        return 'positive'
+    }
+    elseif ($Number -eq 0) {
+        return 'zero'
+    }
+    return 'negative'
+}

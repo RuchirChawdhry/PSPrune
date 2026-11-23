@@ -1,0 +1,9 @@
+function Get-Label {
+    param([int]$Number)
+    switch ($Number) {
+        { $_ -lt 0 } { return 'negative' }
+        0 { return 'zero' }
+        { $_ -ge 100 } { return 'large' }
+        default { return 'positive' }
+    }
+}

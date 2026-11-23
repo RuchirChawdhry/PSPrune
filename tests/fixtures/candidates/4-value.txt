@@ -1,0 +1,14 @@
+function Get-Label {
+    param([int]$Number)
+    $label = 'positive'
+    if ($Number -lt 0) {
+        $label = 'negative'
+    }
+    elseif ($Number -eq 0) {
+        $label = 'zero'
+    }
+    elseif ($Number -ge 100) {
+        $label = 'large'
+    }
+    return $label
+}

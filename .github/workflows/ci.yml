@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: psprune-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  module:
+    name: Static analysis, Pester, and verified module ZIP
+    uses: RuchirChawdhry/ci-workflows/.github/workflows/powershell-module.yml@2c77b4fe5be2185962830944710d1883c3c610da
+    with:
+      runs-on: ubuntu-slim
+      minimum-powershell-version: '7.6.9'
+      manifest-path: src/PSPrune/PSPrune.psd1
+      test-path: tests
+      artifact-name: psprune-module
+
+  smoke:
+    name: Offline five-candidate smoke
+    runs-on: ubuntu-slim
+    timeout-minutes: 15
+    steps:
+      - name: Check out PSPrune
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify PowerShell and install PSComplexity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($PSVersionTable.PSVersion -lt [version]'7.6.9') {
+            throw "PowerShell >= 7.6.9 required, found $($PSVersionTable.PSVersion)."
+          }
+          Install-PSResource PSComplexity -Version '0.7.1' -Scope CurrentUser -TrustRepository -ErrorAction Stop
+          Import-Module PSComplexity -RequiredVersion '0.7.1' -ErrorAction Stop
+
+      - name: Run actual scoring and test-gated replacement with fake candidates
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./scripts/smoke.ps1 -OutFile reports/smoke.json
+          if ($LASTEXITCODE -ne 0) { throw 'Smoke test failed.' }
+          $report = Get-Content -LiteralPath reports/smoke.json -Raw | ConvertFrom-Json
+          if ($report.DryRun.Candidates.Count -ne 5 -or -not $report.Applied.Applied -or
+              $report.Rejected.AllPassed) {
+            throw 'Invalid smoke JSON contract.'
+          }
+
+      - name: Upload machine-readable smoke evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: psprune-smoke-json
+          path: reports/smoke.json
+          if-no-files-found: ignore
+          retention-days: 7
