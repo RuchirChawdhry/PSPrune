@@ -120,4 +120,20 @@ Describe 'PSPrune v0.2 batch contract' {
         $result[0].Status | Should -BeExactly 'protected'
         (Test-Path -LiteralPath (Join-Path $script:workingProject ".psprune/batches/$($batch.id)/manifest.json")) | Should -BeTrue
     }
+
+    It 'runs focused candidate tests and a single full regression in Single mode' {
+        $batch = New-PSPruneBatch -Path $script:workingFile -FunctionName Get-Label -ProjectPath $script:workingProject -TestPath 'tests/Focused.Tests.ps1' -RegressionTestPath 'tests'
+        foreach ($slot in 1..5) {
+            $file = @(Get-Item -Path (Join-Path $script:candidateFolder "$slot-*.txt"))[0].FullName
+            $null = Submit-PSPruneCandidate -Id $batch.id -Slot $slot -SourcePath $file -ProjectPath $script:workingProject
+        }
+        $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:workingProject -Apply
+        $result.applied | Should -BeTrue
+        $result.validation.all_passed | Should -BeTrue
+        $result.validation.winner_regression_passed | Should -BeTrue
+        @($result.candidates | Where-Object passed).Count | Should -Be 5
+        @($result.candidates | Where-Object { $null -ne $_.test_duration_ms }).Count | Should -Be 5
+        @($result.candidates | Where-Object { $_.regression_passed -eq $true }).Count | Should -Be 1
+    }
+
 }
