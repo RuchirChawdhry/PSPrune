@@ -2,6 +2,9 @@ BeforeAll {
     $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).ProviderPath
     $script:sampleProject = Join-Path $root 'tests/fixtures/BatchProject'
     $script:candidateFolder = Join-Path $root 'tests/fixtures/candidates'
+    if (-not (Get-Module -ListAvailable PSComplexity | Where-Object Version -ge '0.7.1')) {
+        Install-PSResource PSComplexity -Version '0.7.1' -Scope CurrentUser -TrustRepository -ErrorAction Stop
+    }
     Import-Module (Join-Path $root 'src/PSPrune/PSPrune.psd1') -Force -ErrorAction Stop
 }
 
