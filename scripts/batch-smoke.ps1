@@ -18,7 +18,7 @@ try {
     }
     $selected = Invoke-PSPrune -BatchId $batch.id -ProjectPath $temporary -Apply
     if ($selected.status -ne 'applied' -or -not $selected.improved -or
-        -not $selected.validation.all_passed -or $selected.candidates.Count -ne 5) {
+        -not $selected.validation.winner_passed -or $selected.candidates.Count -ne 5) {
         throw "Batch evaluation failed: $($selected | ConvertTo-Json -Depth 12 -Compress)"
     }
     $after = [IO.File]::ReadAllText($target)

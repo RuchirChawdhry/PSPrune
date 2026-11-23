@@ -166,80 +166,65 @@ ReturnedCount after applying -Top. A file rename is treated as a newly created
 path for this initial implementation. Functions only edited between commits
 are not classified as newly introduced.
 
-## v0.3 — Same-file function group refactoring
-
-Use `-Mode Split` when a large function needs to be divided into smaller helpers.
-PSPrune still accepts exactly five candidate files, but each file contains one
-original entry-point function plus one or more **top-level helper functions**.
-Helpers are inserted adjacent to the entry point, in the **same source file**.
-No unrelated files are modified, and the existing single-function mode is unchanged.
+## v0.4 — Rank first, test only promising candidates
 
 ```powershell
-$batch = New-PSPruneBatch -ProjectPath . -Path ./src/Module.psm1 -FunctionName Get-Data -Mode Split
+# PSPrune infers the repository root and discovers relevant Pester tests.
+$batch = New-PSPruneBatch -Path ./src/Network.psm1 -FunctionName Get-NetworkInfo -Mode Split
 
+# Each agent submits a same-file entry-point-plus-helpers alternative.
 1..5 | ForEach-Object {
-    Submit-PSPruneCandidate -Id $batch.id -Slot $_ -SourcePath "./proposals/candidate-$_.ps1"
+    Submit-PSPruneCandidate -Id $batch.id -Slot $_ -SourcePath "./candidates/candidate-$_.ps1"
 }
 
-$result = Invoke-PSPrune -BatchId $batch.id -ProjectPath . -Apply
-$result.candidates | Sort-Object total_cognitive, adjusted_cyclomatic
-Get-PSPruneHistory | Sort-Object CompletedAt -Descending
-```
-
-A split candidate contains only function definitions. It must preserve the
-entry-point signature and command attributes. Helper names must be unique and
-must not collide with existing project functions. For script modules, PSPrune
-requires explicit, non-wildcard `FunctionsToExport` in the module manifest so
-new helpers cannot silently become exported commands.
-
-The candidate ranking uses **group-level** measurements. A split is eligible
-only when its total cognitive complexity **and** highest individual cognitive
-complexity decrease, while its *adjusted cyclomatic complexity* does not
-increase. Adjusted cyclomatic is the sum of every function's cyclomatic score
-minus the number of extracted helpers (accounting for the extra base point
-per function). Candidates that satisfy all gates are sorted by total cognitive,
-adjusted cyclomatic, maximum cognitive, helper count, and slot. All five
-candidates must pass the project Pester suite before selection; candidates also
-receive PowerShell syntax, collision, and PSScriptAnalyzer error checks.
-
-The durable master manifest stores each function's hash and complexity values
-along with the group metrics. Candidate source remains disposable and stays on
-disk until manually cleared with `Clear-PSPruneArtifacts`. A batch rejected
-for failing tests or failing to improve the group is retained in history, too.
-
-```powershell
-# End-to-end split-mode test, using real Pester cases and an isolated project
-./scripts/split-smoke.ps1
-```
-
-PSPrune executes submitted code and project tests in subprocesses, which are
-**not security sandboxes**. Only submit trusted project code. For now, Split
-mode supports same-file extraction only, not new imports or helper files.
-
-## Fast candidate validation (v0.3.1)
-
-Use **function-focused Pester tests** for the five proposals and optionally
-verify only the winning proposal against the complete project suite:
-
-```powershell
-$batch = New-PSPruneBatch -Path ./src/Batch.ps1 -FunctionName Invoke-Batch -TestPath tests/Focused/Invoke-Batch.Tests.ps1 -RegressionTestPath tests -TestTimeoutSeconds 300 -Mode Split
-# Submit five proposals through Submit-PSPruneCandidate
 $result = Invoke-PSPrune -BatchId $batch.id -Apply
-$result.candidates | Select-Object slot, passed, score_duration_ms, test_duration_ms, regression_passed, regression_duration_ms
+$result.candidates |
+    Sort-Object concentration_score |
+    Select-Object slot, concentration_score, max_cognitive,
+        tested, passed, score_duration_ms, test_duration_ms
 ```
 
-PSPrune runs the focused Pester tests on the original function and all five
-proposals. If every proposal passes, eligible proposals are ranked. Only
-the best eligible candidate runs the full regression suite. If that candidate
-fails, the batch is rejected by default. Use `-MaxRegressionCandidates 2` (up to 5) to try the next eligible candidate. The master manifest retains
-all scores and timing measurements. Pester subprocesses have a bounded
-runtime and their process trees are terminated on timeout.
+A Split proposal contains the original entry-point function plus one or more
+same-file helpers. The original public parameter and command contract is
+preserved. PSPrune builds a source-function and module-export index **once
+per batch**, then checks helper collisions against that cached snapshot.
 
-For **multi-function refactoring**, omit `-RegressionTestPath` while working
-through individual batches and run the complete suite **once** in CI after
-all refactoring changes are ready. This avoids a full project-suite run per
-function. Focused tests still need adequate behavior coverage.
+### Complexity-concentration score
 
-When `-TestPath` is left at the default `tests`, PSPrune retains its original
-all-candidates-full-suite behavior. Choose a focused Pester test file or
-directory explicitly; PSPrune does not silently guess which tests to skip.
+For cognitive scores \`C_i\` and \`n\` functions:
+
+\`S = sum(C_i^2) + 25 * (n - 1)\`
+
+Lower is better. One function scoring 40 has S = 1600; two scoring 20
+each have S = 825; four scoring 10 each have S = 475.
+The 25-point helper penalty discourages excessive fragmentation.
+Only proposals with lower S than the original are eligible. Aggregate
+cognitive, maximum cognitive, adjusted cyclomatic, and helper count remain
+available as diagnostic metrics, not automatic rejection gates.
+
+### Execution order
+
+1. Parse, check syntax/contracts, and score all five candidates **without
+   running candidate code**.
+2. Rank the eligible candidates by concentration score, maximum cognitive,
+   helper count, then slot number.
+3. Run Pester **only on the best-ranked eligible candidate**. If it fails,
+   record the failed assertion and try the next eligible candidate.
+4. Apply only a passing candidate using the existing source SHA-256 guard;
+   save its full scores and verification outcomes in the permanent manifest.
+   Leave every candidate file intact until explicit manual cleanup.
+
+Test discovery searches for an exact \`<FunctionName>.Tests.ps1\` file first.
+Next it searches test files for a reference to that function name. If no
+focused file is found, it falls back to the project \`tests\` folder **for
+the candidate under consideration**, not all five proposals.
+Explicit \`-ProjectPath\`, \`-TestPath\`, and \`-RegressionTestPath\` overrides
+remain available, but they are not required in the ordinary workflow.
+
+The project's complete CI suite remains the final project-wide check after
+a series of refactorings; it is not run five times per function.
+Pester subprocesses have bounded run times. Submitted code and Pester
+tests execute in processes, not security sandboxes.
+
+Run the built-in end-to-end fixture with \`./scripts/split-smoke.ps1\`.
+Function-group history and temporary artifacts use the same v0.2 layout.

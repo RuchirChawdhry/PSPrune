@@ -46,12 +46,11 @@ try {
     }
 
     if ($submitted.Count -ne 5 -or $result.status -ne 'applied' -or
-        -not $result.validation.all_passed -or -not $result.improved -or
+        -not $result.validation.winner_passed -or -not $result.improved -or
         $result.candidates.Count -ne 5 -or $history.Count -ne 1 -or
         -not $candidatePreserved -or -not $evidence.OutsideFunctionPreserved -or
-        $winner.total_cognitive -ge $batch.original.cognitive -or
-        $winner.max_cognitive -ge $batch.original.cognitive -or
-        $winner.adjusted_cyclomatic -gt $batch.original.cyclomatic) {
+        $winner.concentration_score -ge $batch.original.concentration_score -or
+        $winner.max_cognitive -ge $batch.original.cognitive) {
         throw 'Split-mode self-check failed.'
     }
     $cleanup = @(Clear-PSPruneArtifacts -Path $workspace -BatchId $batch.id -Confirm:$false)

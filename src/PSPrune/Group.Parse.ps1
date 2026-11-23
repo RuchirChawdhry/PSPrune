@@ -61,8 +61,7 @@ function Assert-PSPruneSplitBoundary {
     param(
         [Parameter(Mandatory)]$Group,
         [Parameter(Mandatory)]$Batch,
-        [Parameter(Mandatory)][string]$Root,
-        [Parameter(Mandatory)][string]$Source
+        [Parameter(Mandatory)][string]$Root
     )
 
     if ((Get-PSPruneSignature -FunctionAst $Group.Entry) -cne $Batch.target.signature -or
@@ -71,54 +70,19 @@ function Assert-PSPruneSplitBoundary {
         throw 'Split entry point changed its parameter or command contract.'
     }
 
-    $existing = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    $target = Join-Path $Root $Batch.target.file
-    foreach ($path in Get-ChildItem -LiteralPath $Root -File -Recurse |
-        Where-Object { $_.Extension -in '.ps1', '.psm1' }) {
-        $relative = [IO.Path]::GetRelativePath($Root, $path.FullName).Replace('\', '/')
-        if ($relative -match '(^|/)(\.git|\.psprune|tests|experiments|node_modules)(/|$)') {
-            continue
-        }
-        $text = if ($path.FullName -eq $target) { $Source } else {
-            [IO.File]::ReadAllText($path.FullName)
-        }
-        $tokens = $null
-        $errors = $null
-        $ast = [Management.Automation.Language.Parser]::ParseInput(
-            $text, [ref]$tokens, [ref]$errors
-        )
-        if ($errors.Count) { continue }
-        foreach ($definition in $ast.EndBlock.Statements) {
-            if ($definition -is [Management.Automation.Language.FunctionDefinitionAst]) {
-                $null = $existing.Add($definition.Name)
-            }
-        }
+    $index = $Batch.project_index
+    if ($null -eq $index) {
+        $index = Get-PSPruneProjectIndex -Root $Root
+    }
+    if (@($index.unguarded_modules).Count) {
+        throw "Split mode requires explicit module exports: $(@($index.unguarded_modules) -join ', ')"
     }
     foreach ($helper in $Group.Helpers) {
-        if ($existing.Contains($helper.Name)) {
+        if ($helper.Name -in @($index.names)) {
             throw "Helper '$($helper.Name)' collides with an existing project function."
         }
-    }
-
-    # Refuse modules with implicit or wildcard public function exports.
-    foreach ($module in Get-ChildItem -LiteralPath $Root -Filter '*.psm1' -File -Recurse) {
-        $relative = [IO.Path]::GetRelativePath($Root, $module.FullName).Replace('\', '/')
-        if ($relative -match '(^|/)(\.git|\.psprune|tests|experiments|node_modules)(/|$)') {
-            continue
-        }
-        $manifestPath = [IO.Path]::ChangeExtension($module.FullName, '.psd1')
-        if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-            throw "Split mode requires an explicit module export manifest for '$relative'."
-        }
-        $manifest = Import-PowerShellDataFile -LiteralPath $manifestPath -ErrorAction Stop
-        $exports = @($manifest.FunctionsToExport)
-        if (-not $exports.Count -or @($exports | Where-Object { $_ -match '[*?]' }).Count) {
-            throw "Module '$relative' must declare an explicit, non-wildcard FunctionsToExport list."
-        }
-        foreach ($helper in $Group.Helpers) {
-            if ($helper.Name -in $exports) {
-                throw "Helper '$($helper.Name)' conflicts with a module export."
-            }
+        if ($helper.Name -in @($index.exports)) {
+            throw "Helper '$($helper.Name)' conflicts with a module export."
         }
     }
 }
@@ -152,6 +116,8 @@ function Get-PSPruneSplitScore {
         max_cognitive = $maxCognitive
         adjusted_cyclomatic = $totalCyclomatic - ($scores.Count - 1)
         helper_count = $scores.Count - 1
+        concentration_score = Get-PSPruneConcentrationScore -CognitiveScores @($scores | ForEach-Object cognitive)
+        helper_penalty = 25
         functions = $scores
     }
 }

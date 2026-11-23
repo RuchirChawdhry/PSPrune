@@ -115,18 +115,32 @@ function New-PSPruneBatch {
     param(
         [Parameter(Mandatory, Position = 0)][string]$Path,
         [Parameter(Mandatory, Position = 1)][string]$FunctionName,
-        [string]$ProjectPath = '.',
-        [string]$TestPath = 'tests',
+        [string]$ProjectPath,
+        [string]$TestPath,
         [string]$RegressionTestPath,
         [ValidateRange(5, 3600)][int]$TestTimeoutSeconds = 300,
         [ValidateRange(1, 5)][int]$MaxRegressionCandidates = 1,
         [ValidateSet('Single', 'Split')][string]$Mode = 'Single'
     )
-    $root = (Resolve-Path -LiteralPath $ProjectPath -ErrorAction Stop).ProviderPath
+    $target = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).ProviderPath
+    if ($PSBoundParameters.ContainsKey('ProjectPath')) {
+        $root = (Resolve-Path -LiteralPath $ProjectPath -ErrorAction Stop).ProviderPath
+    }
+    else {
+        $root = [IO.Path]::GetDirectoryName($target)
+        while ($root) {
+            if ((Test-Path -LiteralPath (Join-Path $root '.git')) -or
+                (Test-Path -LiteralPath (Join-Path $root 'tests') -PathType Container)) {
+                break
+            }
+            $parent = [IO.Directory]::GetParent($root)
+            if ($null -eq $parent) { break }
+            $root = $parent.FullName
+        }
+    }
     if (-not (Get-Item -LiteralPath $root).PSIsContainer) {
         throw 'ProjectPath must be a directory.'
     }
-    $target = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).ProviderPath
     if ((Get-Item -LiteralPath $target).PSIsContainer) { throw 'Path must identify a script file.' }
     $relative = [IO.Path]::GetRelativePath($root, $target)
     if ([IO.Path]::IsPathRooted($relative) -or $relative -eq '..' -or
@@ -136,14 +150,8 @@ function New-PSPruneBatch {
     if ([IO.Path]::GetExtension($target) -notin '.ps1', '.psm1') {
         throw 'Only .ps1 and .psm1 targets are supported.'
     }
-    $tests = [IO.Path]::GetFullPath($TestPath, $root)
-    $relativeTests = [IO.Path]::GetRelativePath($root, $tests)
-    if ($relativeTests -eq '..' -or
-        $relativeTests.StartsWith("..$([IO.Path]::DirectorySeparatorChar)") -or
-        [IO.Path]::IsPathRooted($relativeTests) -or
-        -not (Test-Path -LiteralPath $tests)) {
-        throw 'TestPath must exist inside the project.'
-    }
+    $discovery = Resolve-PSPruneTestPath -Root $root -FunctionName $FunctionName -ExplicitPath $TestPath
+    $relativeTests = $discovery.Path
     $relativeRegressionTests = $null
     if (-not [string]::IsNullOrWhiteSpace($RegressionTestPath)) {
         $regression = [IO.Path]::GetFullPath($RegressionTestPath, $root)
@@ -158,6 +166,7 @@ function New-PSPruneBatch {
             $relativeRegressionTests = $null
         }
     }
+    $index = if ($Mode -eq 'Split') { Get-PSPruneProjectIndex -Root $root } else { $null }
     $source = [IO.File]::ReadAllText($target)
     $definition = Get-PSPruneAst -Source $source -FunctionName $FunctionName
     Import-Module PSComplexity -MinimumVersion '0.7.1' -ErrorAction Stop
@@ -191,7 +200,9 @@ function New-PSPruneBatch {
             applied = $false
             project_root = $root
             test_path = $relativeTests
+            test_discovery = $discovery.Discovery
             regression_test_path = $relativeRegressionTests
+            project_index = $index
             test_timeout_seconds = $TestTimeoutSeconds
             max_regression_candidates = $MaxRegressionCandidates
             target = [ordered]@{
@@ -206,6 +217,7 @@ function New-PSPruneBatch {
             original = [ordered]@{
                 cyclomatic = [int]$measurements[0].Cyclomatic
                 cognitive = [int]$measurements[0].Cognitive
+                concentration_score = [long]$measurements[0].Cognitive * [long]$measurements[0].Cognitive
             }
             slots = @(1..5)
         }
@@ -260,8 +272,7 @@ function Submit-PSPruneCandidate {
         if ($batch.status -ne 'open') { throw "Batch '$Id' is not open." }
         if ($batch.mode -eq 'Split') {
             $group = Get-PSPruneGroup -Source $text -FunctionName $batch.target.function
-            $targetPath = Join-Path $root $batch.target.file
-            Assert-PSPruneSplitBoundary -Group $group -Batch $batch -Root $root -Source ([IO.File]::ReadAllText($targetPath))
+            Assert-PSPruneSplitBoundary -Group $group -Batch $batch -Root $root
             $ast = $group.Entry
         }
         else {
