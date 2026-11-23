@@ -151,7 +151,7 @@ function Complete-PSPruneSingleResult {
     $winner = $Evaluation.Winner
     $improved = $Evaluation.Improved
     $allPassed = $Evaluation.AllPassed
-    $record = New-PSPruneSingleRecord -Id $Id -Batch $batch -Results $results -Winner $winner -Improved $improved -AllPassed $allPassed -Apply:$Apply
+    $record = Get-PSPruneSingleRecord -Id $Id -Batch $batch -Results $results -Winner $winner -Improved $improved -AllPassed $allPassed -Apply:$Apply
 
     $lock = Enter-PSPruneLock -Store $store
     try {
@@ -188,7 +188,7 @@ function Complete-PSPruneSingleResult {
     finally { $lock.Dispose() }
 }
 
-function New-PSPruneSingleRecord {
+function Get-PSPruneSingleRecord {
     param([string]$Id, $Batch, $Results, $Winner, [bool]$Improved, [bool]$AllPassed, [switch]$Apply)
     $batch = $Batch
     $results = $Results
