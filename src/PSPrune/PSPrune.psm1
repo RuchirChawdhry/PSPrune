@@ -64,16 +64,20 @@ function Get-PSPruneReport {
         }
     })
 
-    $ordered = if ($Metric -eq 'Cyclomatic') {
-        @($functions | Sort-Object Cyclomatic, Cognitive -Descending)
-    }
-    else {
-        @($functions | Sort-Object Cognitive, Cyclomatic -Descending)
-    }
-    $selected = if ($PSBoundParameters.ContainsKey('Top')) {
-        @($ordered | Select-Object -First $Top)
-    }
-    else { $ordered }
+    $ordered = @(
+        if ($Metric -eq 'Cyclomatic') {
+            $functions | Sort-Object Cyclomatic, Cognitive -Descending
+        }
+        else {
+            $functions | Sort-Object Cognitive, Cyclomatic -Descending
+        }
+    )
+    $selected = @(
+        if ($PSBoundParameters.ContainsKey('Top')) {
+            $ordered | Select-Object -First $Top
+        }
+        else { $ordered }
+    )
 
     [pscustomobject]@{
         SchemaVersion = 1
