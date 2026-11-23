@@ -167,6 +167,9 @@ function New-PSPruneBatch {
             id = $id
             status = 'open'
             created_at = [DateTime]::UtcNow.ToString('o')
+            completed_at = $null
+            selected_slot = $null
+            applied = $false
             project_root = $root
             test_path = $relativeTests
             target = [ordered]@{
