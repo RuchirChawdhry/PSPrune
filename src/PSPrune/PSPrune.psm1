@@ -75,14 +75,20 @@ function Invoke-PSPrune {
     .DESCRIPTION
     Candidate tests execute in separate PowerShell processes, NOT a security sandbox.
     #>
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'Legacy')]
     param(
-        [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)][string]$FunctionName,
-        [Parameter(Mandatory)][string[]]$Candidates,
-        [Parameter(Mandatory)][string]$TestScript,
+        [Parameter(Mandatory, ParameterSetName = 'Legacy')][string]$Path,
+        [Parameter(Mandatory, ParameterSetName = 'Legacy')][string]$FunctionName,
+        [Parameter(Mandatory, ParameterSetName = 'Legacy')][string[]]$Candidates,
+        [Parameter(Mandatory, ParameterSetName = 'Legacy')][string]$TestScript,
+        [Parameter(Mandatory, ParameterSetName = 'Batch')][string]$BatchId,
+        [Parameter(ParameterSetName = 'Batch')][string]$ProjectPath = '.',
         [switch]$Apply
     )
+
+    if ($PSCmdlet.ParameterSetName -eq 'Batch') {
+        return Invoke-PSPruneBatch -Id $BatchId -ProjectPath $ProjectPath -Apply:$Apply
+    }
 
     if ($Candidates.Count -ne 5) {
         throw 'Exactly five candidate functions are required.'
@@ -191,4 +197,16 @@ function Invoke-PSPrune {
     }
 }
 
-Export-ModuleMember -Function Get-PSPruneReport, Invoke-PSPrune
+. (Join-Path $PSScriptRoot 'Batch.Storage.ps1')
+. (Join-Path $PSScriptRoot 'Batch.Invoke.ps1')
+. (Join-Path $PSScriptRoot 'Batch.Clean.ps1')
+
+Export-ModuleMember -Function @(
+    'Get-PSPruneReport',
+    'Invoke-PSPrune',
+    'New-PSPruneBatch',
+    'Get-PSPruneBatch',
+    'Get-PSPruneHistory',
+    'Submit-PSPruneCandidate',
+    'Clear-PSPruneArtifacts'
+)
