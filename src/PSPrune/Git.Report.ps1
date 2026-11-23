@@ -13,7 +13,7 @@ function Get-PSPruneGitText {
     $lines -join [Environment]::NewLine
 }
 
-function Get-PSPruneGitFunctions {
+function Get-PSPruneGitFunction {
     param(
         [Parameter(Mandatory)][string]$Source,
         [Parameter(Mandatory)][string]$File
@@ -80,7 +80,7 @@ function Get-PSPruneCommitReport {
         foreach ($file in $changedPaths) {
             if ([IO.Path]::GetExtension($file) -notin '.ps1', '.psm1') { continue }
             $text = Get-PSPruneGitText -Repository $repository -Commit $currentSha -File $file
-            $currentFunctions = @(Get-PSPruneGitFunctions -Source $text -File $file)
+            $currentFunctions = @(Get-PSPruneGitFunction -Source $text -File $file)
             if (-not $currentFunctions.Count) { continue }
 
             $oldPaths = @(& git -C $repository -c core.quotePath=false ls-tree -r --name-only $baselineSha -- $file)
@@ -88,7 +88,7 @@ function Get-PSPruneCommitReport {
             $baselineNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
             if ($oldPaths.Count -gt 0) {
                 $oldText = Get-PSPruneGitText -Repository $repository -Commit $baselineSha -File $file
-                $oldFunctions = @(Get-PSPruneGitFunctions -Source $oldText -File $file)
+                $oldFunctions = @(Get-PSPruneGitFunction -Source $oldText -File $file)
                 foreach ($definition in $oldFunctions) {
                     $null = $baselineNames.Add($definition.Name)
                 }
