@@ -79,6 +79,8 @@ Describe 'PSPrune v0.2 batch contract' {
         $history = @(Get-PSPruneHistory -Path $script:workingProject)
         $history.Count | Should -Be 1
         $history[0].id | Should -BeExactly $batch.id
+        $history[0].CompletedAt | Should -Not -BeNullOrEmpty
+        @($history | Sort-Object CompletedAt -Descending)[0].id | Should -BeExactly $batch.id
         (($history[0] | ConvertTo-Json -Depth 12 | ConvertFrom-Json).candidates.Count) | Should -Be 5
         $master = Join-Path $script:workingProject '.psprune/manifest.json'
         $masterBefore = [IO.File]::ReadAllText($master)
