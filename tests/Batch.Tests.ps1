@@ -98,7 +98,7 @@ Describe 'PSPrune v0.2 batch contract' {
         $batch = New-PSPruneBatch -Path $script:workingFile -FunctionName Get-Label -ProjectPath $script:workingProject
         for ($slot = 1; $slot -le 5; $slot++) {
             $file = @(Get-Item -Path (Join-Path $script:candidateFolder "$slot-*.txt"))[0].FullName
-            if ($slot -eq 1) {
+            if ($slot -eq 3) {
                 $wrong = Join-Path $TestDrive 'wrong.ps1'
                 [IO.File]::WriteAllText($wrong, ([IO.File]::ReadAllText($file)).Replace("return 'zero'", "return 'wrong'"))
                 $file = $wrong
@@ -106,11 +106,12 @@ Describe 'PSPrune v0.2 batch contract' {
             $null = Submit-PSPruneCandidate -Id $batch.id -Slot $slot -SourcePath $file -ProjectPath $script:workingProject
         }
         $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:workingProject -Apply
-        $result.status | Should -BeExactly 'applied'
-        $result.validation.winner_passed | Should -BeTrue
-        $result.applied | Should -BeTrue
-        $result.candidates[0].passed | Should -BeFalse
-        $result.candidates[1].passed | Should -BeTrue
+        $result.status | Should -BeExactly 'rejected'
+        $result.validation.winner_passed | Should -BeFalse
+        $result.applied | Should -BeFalse
+        $result.candidates[2].passed | Should -BeFalse
+        $result.candidates[0].tested | Should -BeFalse
+        [IO.File]::ReadAllText($script:workingFile) | Should -BeExactly $original
         @((Get-PSPruneHistory -Path $script:workingProject)).Count | Should -Be 1
     }
 
@@ -131,7 +132,7 @@ Describe 'PSPrune v0.2 batch contract' {
         $result.applied | Should -BeTrue
         $result.validation.winner_passed | Should -BeTrue
         $result.validation.winner_regression_passed | Should -BeTrue
-        @($result.candidates | Where-Object passed).Count | Should -Be 5
+        @($result.candidates | Where-Object passed).Count | Should -Be 1
         @($result.candidates | Where-Object { $null -ne $_.test_duration_ms }).Count | Should -Be 1
         @($result.candidates | Where-Object { $_.regression_passed -eq $true }).Count | Should -Be 1
     }
