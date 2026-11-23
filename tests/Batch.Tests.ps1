@@ -70,6 +70,7 @@ Describe 'PSPrune v0.2 batch contract' {
         $result.validation.winner_passed | Should -BeTrue
         $result.improved | Should -BeTrue
         $result.applied | Should -BeTrue
+        $result.PSObject.Properties.Name | Should -Not -Contain 'mode'
         $result.candidates.Count | Should -Be 5
         $result.selected_slot | Should -BeGreaterThan 0
         $after = [IO.File]::ReadAllText($script:workingFile)
