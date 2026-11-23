@@ -3,6 +3,7 @@ function Clear-PSPruneArtifacts {
     .SYNOPSIS
     Manually remove disposable batch directories, never the permanent manifest.
     #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification = 'Intentional collection-wide command name established in PSPrune API')]
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
     param(
         [string]$Path = '.',
