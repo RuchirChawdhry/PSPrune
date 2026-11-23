@@ -1,0 +1,15 @@
+function Get-Category {
+    param([int]$Number)
+
+    if ($Number -lt 0) { return Get-NegativeCategoryValue -Number $Number }
+    if ($Number -eq 0) { return 'zero' }
+    if ($Number -ge 100) { return 'large' }
+    return 'positive'
+}
+
+function Get-NegativeCategoryValue {
+    param([int]$Number)
+
+    if ($Number -le -100) { return 'very-negative' }
+    return 'negative'
+}
