@@ -81,6 +81,21 @@ Describe 'PSPrune v0.3 same-file function groups' {
         [IO.File]::ReadAllText($master) | Should -BeExactly $manifest
     }
 
+    It 'records a Split-mode dry-run without modifying the source' {
+        $batch = New-PSPruneBatch -Path $script:target -FunctionName Get-Category -ProjectPath $script:project -Mode Split
+        foreach ($slot in 1..5) {
+            $null = Submit-PSPruneCandidate -Id $batch.id -Slot $slot -SourcePath (Join-Path $script:sourceCandidates "candidate-$slot.txt") -ProjectPath $script:project
+        }
+        $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:project
+        $result.status | Should -BeExactly 'evaluated'
+        $result.mode | Should -BeExactly 'Split'
+        $result.applied | Should -BeFalse
+        $result.validation.winner_passed | Should -BeTrue
+        $result.validation.baseline_passed | Should -BeTrue
+        [IO.File]::ReadAllText($script:target) | Should -BeExactly $script:original
+        @((Get-PSPruneHistory -Path $script:project)).Count | Should -Be 1
+    }
+
     It 'rejects a behavior-changing helper while preserving original source' {
         $batch = New-PSPruneBatch -Path $script:target -FunctionName Get-Category -ProjectPath $script:project -Mode Split
         foreach ($slot in 1..5) {
