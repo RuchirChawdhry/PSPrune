@@ -55,7 +55,6 @@ function Get-PSPruneSingleContext {
 
 function Measure-PSPruneSingleProposal {
     param([Parameter(Mandatory)]$Context)
-    $root = $Context.Root
     $batch = $Context.Batch
     $source = $Context.Source
     $definition = $Context.Definition
