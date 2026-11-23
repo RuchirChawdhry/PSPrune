@@ -88,7 +88,7 @@ function Get-PSPruneCommitReport {
             $baselineNames = @()
             if ($oldPaths.Count) {
                 $oldText = Get-PSPruneGitText -Repository $repository -Commit $baselineSha -File $file
-                $baselineNames = (Get-PSPruneGitFunction -Source $oldText -File $file).Name
+                $baselineNames = @(Get-PSPruneGitFunction -Source $oldText -File $file | ForEach-Object Name)
             }
 
             $added = @($currentFunctions | Where-Object { $baselineNames -notcontains $_.Name })
