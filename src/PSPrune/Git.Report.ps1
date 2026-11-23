@@ -85,16 +85,13 @@ function Get-PSPruneCommitReport {
 
             $oldPaths = @(& git -C $repository -c core.quotePath=false ls-tree -r --name-only $baselineSha -- $file)
             if ($LASTEXITCODE -ne 0) { throw "Cannot inspect baseline tree for '$file'." }
-            $baselineNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-            if ($oldPaths.Count -gt 0) {
+            $baselineNames = @()
+            if ($oldPaths.Count) {
                 $oldText = Get-PSPruneGitText -Repository $repository -Commit $baselineSha -File $file
-                $oldFunctions = @(Get-PSPruneGitFunction -Source $oldText -File $file)
-                foreach ($definition in $oldFunctions) {
-                    $null = $baselineNames.Add($definition.Name)
-                }
+                $baselineNames = (Get-PSPruneGitFunction -Source $oldText -File $file).Name
             }
 
-            $added = @($currentFunctions | Where-Object { -not $baselineNames.Contains($_.Name) })
+            $added = @($currentFunctions | Where-Object { $baselineNames -notcontains $_.Name })
             if (-not $added.Count) { continue }
             $fileIndex++
             $snapshot = Join-Path $scratch "$fileIndex$([IO.Path]::GetExtension($file))"
