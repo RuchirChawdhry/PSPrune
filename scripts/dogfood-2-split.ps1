@@ -22,7 +22,7 @@ try {
     $before = [IO.File]::ReadAllText($target)
     $outerDigest = (Get-FileHash -LiteralPath (Join-Path $root $relative) -Algorithm SHA256).Hash
 
-    $batch = New-PSPruneBatch -ProjectPath $project -Path $target -FunctionName Invoke-PSPruneBatch -TestPath tests -Mode Split
+    $batch = New-PSPruneBatch -ProjectPath $project -Path $target -FunctionName Invoke-PSPruneBatch -TestPath tests/Focused/Invoke-PSPruneBatch.Tests.ps1 -RegressionTestPath tests -TestTimeoutSeconds 300 -Mode Split
     $submitted = @(foreach ($slot in 1..5) {
         $candidate = Join-Path $root "experiments/dogfood-2-split/candidate-$slot.ps1"
         Submit-PSPruneCandidate -Id $batch.id -Slot $slot -SourcePath $candidate -ProjectPath $project
@@ -72,6 +72,8 @@ try {
         Submitted = $submitted.Count
         Result = $evaluated
         HistoryCount = $history.Count
+        CandidateTestPath = $batch.test_path
+        RegressionTestPath = $batch.regression_test_path
         OutsideGroupUnchanged = $outsideOld -ceq $outsideNew
         ProductionUnchanged = $outerDigest -ceq (
             Get-FileHash -LiteralPath (Join-Path $root $relative) -Algorithm SHA256
@@ -93,6 +95,7 @@ try {
     if ($submitted.Count -ne 5 -or $history.Count -ne 1) {
         throw 'Dogfood 2.0 lost candidate submissions or history.'
     }
+    if (-not $evaluated.validation.winner_regression_passed) { throw 'Dogfood 2.0: winner did not pass full regression.' }
     if (-not $evaluated.validation.all_passed) { throw 'Dogfood 2.0: not all five candidates passed Pester.' }
     if (-not $evaluated.improved -or -not $evaluated.applied) {
         throw 'Dogfood 2.0: no eligible split group was applied.'
