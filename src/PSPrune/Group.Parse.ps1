@@ -61,8 +61,7 @@ function Assert-PSPruneSplitBoundary {
     param(
         [Parameter(Mandatory)]$Group,
         [Parameter(Mandatory)]$Batch,
-        [Parameter(Mandatory)][string]$Root,
-        [Parameter(Mandatory)][string]$Source
+        [Parameter(Mandatory)][string]$Root
     )
 
     if ((Get-PSPruneSignature -FunctionAst $Group.Entry) -cne $Batch.target.signature -or
