@@ -1,6 +1,6 @@
 @{
     RootModule        = 'PSPrune.psm1'
-    ModuleVersion     = '0.3.0'
+    ModuleVersion     = '0.3.1'
     GUID              = '7f56aa55-cd59-46f0-a31b-ed9947dddc92'
     Author            = 'Ruchir Chawdhry'
     Description       = 'Complexity reporting and test-gated function pruning for PowerShell.'

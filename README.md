@@ -215,3 +215,31 @@ for failing tests or failing to improve the group is retained in history, too.
 PSPrune executes submitted code and project tests in subprocesses, which are
 **not security sandboxes**. Only submit trusted project code. For now, Split
 mode supports same-file extraction only, not new imports or helper files.
+
+## Fast candidate validation (v0.3.1)
+
+Use **function-focused Pester tests** for the five proposals and optionally
+verify only the winning proposal against the complete project suite:
+
+```powershell
+$batch = New-PSPruneBatch -Path ./src/Batch.ps1 -FunctionName Invoke-Batch -TestPath tests/Focused/Invoke-Batch.Tests.ps1 -RegressionTestPath tests -TestTimeoutSeconds 300 -Mode Split
+# Submit five proposals through Submit-PSPruneCandidate
+$result = Invoke-PSPrune -BatchId $batch.id -Apply
+$result.candidates | Select-Object slot, passed, score_duration_ms, test_duration_ms, regression_passed, regression_duration_ms
+```
+
+PSPrune runs the focused Pester tests on the original function and all five
+proposals. If every proposal passes, eligible proposals are ranked. Only
+the best eligible candidate runs the full regression suite. If that candidate
+fails, the next eligible candidate gets a turn. The master manifest retains
+all scores and timing measurements. Pester subprocesses have a bounded
+runtime and their process trees are terminated on timeout.
+
+For **multi-function refactoring**, omit `-RegressionTestPath` while working
+through individual batches and run the complete suite **once** in CI after
+all refactoring changes are ready. This avoids a full project-suite run per
+function. Focused tests still need adequate behavior coverage.
+
+When `-TestPath` is left at the default `tests`, PSPrune retains its original
+all-candidates-full-suite behavior. Choose a focused Pester test file or
+directory explicitly; PSPrune does not silently guess which tests to skip.
