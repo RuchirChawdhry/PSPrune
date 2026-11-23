@@ -3,8 +3,10 @@ function Invoke-PSPrunePester {
         [string]$ProjectRoot,
         [string]$RelativeTestPath,
         [string]$RelativeTargetPath,
-        [string]$Replacement
+        [string]$Replacement,
+        [ValidateRange(5, 3600)][int]$TimeoutSeconds = 120
     )
+    $watch = [Diagnostics.Stopwatch]::StartNew()
     $scratch = Join-Path ([IO.Path]::GetTempPath()) ('psprune-suite-' + [guid]::NewGuid().ToString('N'))
     $isolated = Join-Path $scratch 'project'
     $null = New-Item -ItemType Directory -Path $isolated -Force
@@ -32,16 +34,41 @@ if ($result.Result -ne 'Passed' -or $result.PassedCount -eq 0) { exit 1 }
 '@, [Text.UTF8Encoding]::new($false))
         $pwsh = (Get-Command pwsh -CommandType Application -ErrorAction Stop |
             Select-Object -First 1).Source
-        Push-Location $isolated
+        $start = [Diagnostics.ProcessStartInfo]::new($pwsh)
+        foreach ($argument in @('-NoProfile', '-NonInteractive', '-File', $runner, '-TestPath', $tests)) {
+            $start.ArgumentList.Add($argument)
+        }
+        $start.WorkingDirectory = $isolated
+        $start.RedirectStandardOutput = $true
+        $start.RedirectStandardError = $true
+        $start.UseShellExecute = $false
+        $start.CreateNoWindow = $true
+        $process = [Diagnostics.Process]::new()
+        $process.StartInfo = $start
         try {
-            $output = @(& $pwsh -NoProfile -NonInteractive -File $runner -TestPath $tests 2>&1)
-            $exitCode = $LASTEXITCODE
+            $null = $process.Start()
+            $stdout = $process.StandardOutput.ReadToEndAsync()
+            $stderr = $process.StandardError.ReadToEndAsync()
+            $timedOut = -not $process.WaitForExit($TimeoutSeconds * 1000)
+            if ($timedOut) {
+                if (-not $process.HasExited) { $process.Kill($true) }
+                $process.WaitForExit()
+            }
+            $exitCode = $process.ExitCode
+            $output = @($stdout.GetAwaiter().GetResult(), $stderr.GetAwaiter().GetResult()) -join [Environment]::NewLine
+            $watch.Stop()
+            [pscustomobject]@{
+                Passed = -not $timedOut -and $exitCode -eq 0
+                Error = if ($timedOut) {
+                    "Pester exceeded $TimeoutSeconds seconds and its process tree was terminated."
+                }
+                elseif ($exitCode -ne 0) { $output.Substring(0, [Math]::Min(4000, $output.Length)) }
+                else { $null }
+                DurationMs = $watch.ElapsedMilliseconds
+                TimedOut = $timedOut
+            }
         }
-        finally { Pop-Location }
-        [pscustomobject]@{
-            Passed = $exitCode -eq 0
-            Error = if ($exitCode -ne 0) { $output -join [Environment]::NewLine } else { $null }
-        }
+        finally { $process.Dispose() }
     }
     finally { Remove-Item -LiteralPath $scratch -Recurse -Force }
 }
