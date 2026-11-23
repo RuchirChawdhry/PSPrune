@@ -197,7 +197,10 @@ function Get-PSPruneHistory {
     param([string]$Path = '.')
     $root = Get-PSPruneRoot -Path $Path
     $master = Get-PSPruneJson -Path (Get-PSPruneMasterPath -Root $root)
-    foreach ($record in $master.batches) { $record }
+    foreach ($record in $master.batches) {
+        $record | Add-Member -MemberType AliasProperty -Name CompletedAt -Value completed_at -Force
+        $record
+    }
 }
 
 function Get-PSPruneBatch {
