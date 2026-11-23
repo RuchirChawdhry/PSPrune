@@ -117,6 +117,8 @@ function New-PSPruneBatch {
         [Parameter(Mandatory, Position = 1)][string]$FunctionName,
         [string]$ProjectPath = '.',
         [string]$TestPath = 'tests',
+        [string]$RegressionTestPath,
+        [ValidateRange(5, 3600)][int]$TestTimeoutSeconds = 120,
         [ValidateSet('Single', 'Split')][string]$Mode = 'Single'
     )
     $root = (Resolve-Path -LiteralPath $ProjectPath -ErrorAction Stop).ProviderPath
@@ -140,6 +142,20 @@ function New-PSPruneBatch {
         [IO.Path]::IsPathRooted($relativeTests) -or
         -not (Test-Path -LiteralPath $tests)) {
         throw 'TestPath must exist inside the project.'
+    }
+    $relativeRegressionTests = $null
+    if (-not [string]::IsNullOrWhiteSpace($RegressionTestPath)) {
+        $regression = [IO.Path]::GetFullPath($RegressionTestPath, $root)
+        $relativeRegressionTests = [IO.Path]::GetRelativePath($root, $regression)
+        if ($relativeRegressionTests -eq '..' -or
+            $relativeRegressionTests.StartsWith("..$([IO.Path]::DirectorySeparatorChar)") -or
+            [IO.Path]::IsPathRooted($relativeRegressionTests) -or
+            -not (Test-Path -LiteralPath $regression)) {
+            throw 'RegressionTestPath must exist inside the project.'
+        }
+        if ($relativeRegressionTests -eq $relativeTests) {
+            $relativeRegressionTests = $null
+        }
     }
     $source = [IO.File]::ReadAllText($target)
     $definition = Get-PSPruneAst -Source $source -FunctionName $FunctionName
@@ -174,6 +190,8 @@ function New-PSPruneBatch {
             applied = $false
             project_root = $root
             test_path = $relativeTests
+            regression_test_path = $relativeRegressionTests
+            test_timeout_seconds = $TestTimeoutSeconds
             target = [ordered]@{
                 file = $relative
                 function = $FunctionName
