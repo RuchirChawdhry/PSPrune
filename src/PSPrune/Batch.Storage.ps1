@@ -180,7 +180,7 @@ function New-PSPruneBatch {
                 file_sha256 = Get-PSPruneFileDigest -Path $target
                 source_sha256 = Get-PSPruneDigest -Text $definition.Extent.Text
                 signature = Get-PSPruneSignature -FunctionAst $definition
-                attributes = Get-PSPruneFunctionAttributes -FunctionAst $definition
+                attributes = Get-PSPruneFunctionAttribute -FunctionAst $definition
                 is_filter = [bool]$definition.IsFilter
             }
             original = [ordered]@{
