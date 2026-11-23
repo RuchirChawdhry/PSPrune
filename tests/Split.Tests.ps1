@@ -1,0 +1,128 @@
+BeforeAll {
+    $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).ProviderPath
+    $script:sourceProject = Join-Path $root 'tests/fixtures/SplitProject'
+    $script:sourceCandidates = Join-Path $root 'tests/fixtures/SplitCandidates'
+    if (-not (Get-Module -ListAvailable PSComplexity | Where-Object Version -ge '0.7.1')) {
+        Install-PSResource PSComplexity -Version '0.7.1' -Scope CurrentUser -TrustRepository -ErrorAction Stop
+    }
+    if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
+        Install-PSResource PSScriptAnalyzer -Version '1.24.0' -Scope CurrentUser -TrustRepository -ErrorAction Stop
+    }
+    Import-Module (Join-Path $root 'src/PSPrune/PSPrune.psd1') -Force -ErrorAction Stop
+}
+
+Describe 'PSPrune v0.3 same-file function groups' {
+    BeforeEach {
+        $script:project = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        Copy-Item -LiteralPath $script:sourceProject -Destination $script:project -Recurse -Force
+        $script:target = Join-Path $script:project 'Category.ps1'
+        $script:original = [IO.File]::ReadAllText($script:target)
+    }
+
+    It 'creates Split batches and accepts distinct candidate slots' {
+        $batch = New-PSPruneBatch -Path $script:target -FunctionName Get-Category -ProjectPath $script:project -Mode Split
+        $batch.mode | Should -BeExactly 'Split'
+        $batch.target.function | Should -BeExactly 'Get-Category'
+        $batch.original.cognitive | Should -BeGreaterThan 0
+        $candidate = Join-Path $script:sourceCandidates 'candidate-1.txt'
+        $submitted = Submit-PSPruneCandidate -Id $batch.id -Slot 1 -SourcePath $candidate -ProjectPath $script:project
+        $submitted.SHA256 | Should -Match '^[0-9a-f]{64}$'
+        { Submit-PSPruneCandidate -Id $batch.id -Slot 1 -SourcePath $candidate -ProjectPath $script:project } |
+            Should -Throw '*occupied*'
+    }
+
+    It 'refuses unrelated executable statements and helper name collisions' {
+        $batch = New-PSPruneBatch -Path $script:target -FunctionName Get-Category -ProjectPath $script:project -Mode Split
+        $source = [IO.File]::ReadAllText((Join-Path $script:sourceCandidates 'candidate-1.txt'))
+        $file = Join-Path $TestDrive 'invalid-split.ps1'
+        [IO.File]::WriteAllText($file, $source + "Write-Output 'unexpected'")
+        { Submit-PSPruneCandidate -Id $batch.id -Slot 1 -SourcePath $file -ProjectPath $script:project } |
+            Should -Throw '*top-level*'
+        [IO.File]::WriteAllText($file, $source.Replace('Get-NegativeCategory', 'Get-Unchanged'))
+        { Submit-PSPruneCandidate -Id $batch.id -Slot 1 -SourcePath $file -ProjectPath $script:project } |
+            Should -Throw '*collides*'
+        (Test-Path -LiteralPath (Join-Path $script:project ".psprune/batches/$($batch.id)/candidate-1.ps1")) | Should -BeFalse
+    }
+
+    It 'passes real Pester tests and applies the lowest-scoring function group' {
+        $batch = New-PSPruneBatch -Path $script:target -FunctionName Get-Category -ProjectPath $script:project -Mode Split
+        foreach ($slot in 1..5) {
+            $null = Submit-PSPruneCandidate -Id $batch.id -Slot $slot -SourcePath (Join-Path $script:sourceCandidates "candidate-$slot.txt") -ProjectPath $script:project
+        }
+        $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:project -Apply
+        $result.mode | Should -BeExactly 'Split'
+        $result.status | Should -BeExactly 'applied'
+        $result.validation.all_passed | Should -BeTrue
+        $result.applied | Should -BeTrue
+        $result.candidates.Count | Should -Be 5
+        $winner = @($result.candidates | Where-Object slot -eq $result.selected_slot)[0]
+        $winner.eligible | Should -BeTrue
+        $winner.helper_count | Should -Be 1
+        $winner.functions.Count | Should -Be 2
+        $winner.total_cognitive | Should -BeLessThan $batch.original.cognitive
+        $winner.max_cognitive | Should -BeLessThan $batch.original.cognitive
+        ($winner.adjusted_cyclomatic -le $batch.original.cyclomatic) | Should -BeTrue
+
+        $revised = [IO.File]::ReadAllText($script:target)
+        $revised | Should -Match ([regex]::Escape($winner.functions[1].name))
+        $revised.Substring($revised.IndexOf('# untouched-after')) |
+            Should -BeExactly $script:original.Substring($script:original.IndexOf('# untouched-after'))
+        $revised.Substring(0, $revised.IndexOf('function Get-Category')) |
+            Should -BeExactly $script:original.Substring(0, $script:original.IndexOf('function Get-Category'))
+        $history = @(Get-PSPruneHistory -Path $script:project)
+        $history.Count | Should -Be 1
+        $history[0].candidates[0].functions[1].sha256 | Should -Match '^[0-9a-f]{64}$'
+        $master = Join-Path $script:project '.psprune/manifest.json'
+        $manifest = [IO.File]::ReadAllText($master)
+        (Test-Path -LiteralPath (Join-Path $script:project ".psprune/batches/$($batch.id)/candidate-1.ps1")) | Should -BeTrue
+        @(Clear-PSPruneArtifacts -Path $script:project -BatchId $batch.id -Confirm:$false)[0].Removed | Should -BeTrue
+        [IO.File]::ReadAllText($master) | Should -BeExactly $manifest
+    }
+
+    It 'rejects a behavior-changing helper while preserving original source' {
+        $batch = New-PSPruneBatch -Path $script:target -FunctionName Get-Category -ProjectPath $script:project -Mode Split
+        foreach ($slot in 1..5) {
+            $file = Join-Path $script:sourceCandidates "candidate-$slot.txt"
+            if ($slot -eq 3) {
+                $wrong = Join-Path $TestDrive 'wrong-split.ps1'
+                $text = [IO.File]::ReadAllText($file)
+                [IO.File]::WriteAllText($wrong, $text.Replace("'negative'", "'incorrect'"))
+                $file = $wrong
+            }
+            $null = Submit-PSPruneCandidate -Id $batch.id -Slot $slot -SourcePath $file -ProjectPath $script:project
+        }
+        $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:project -Apply
+        $result.status | Should -BeExactly 'rejected'
+        $result.validation.all_passed | Should -BeFalse
+        $result.candidates[2].passed | Should -BeFalse
+        $result.applied | Should -BeFalse
+        [IO.File]::ReadAllText($script:target) | Should -BeExactly $script:original
+    }
+
+    It 'rejects score gaming by adding unused helpers without reducing the original function' {
+        $batch = New-PSPruneBatch -Path $script:target -FunctionName Get-Category -ProjectPath $script:project -Mode Split
+        $entry = $script:original.Substring($script:original.IndexOf('function Get-Category'),
+            $script:original.IndexOf('# untouched-after') - $script:original.IndexOf('function Get-Category')).TrimEnd()
+        foreach ($slot in 1..5) {
+            $text = $entry + [Environment]::NewLine + [Environment]::NewLine +
+                "function Get-NoOpHelper$slot { return 1 }"
+            $file = Join-Path $TestDrive "noop-$slot.ps1"
+            [IO.File]::WriteAllText($file, $text)
+            $null = Submit-PSPruneCandidate -Id $batch.id -Slot $slot -SourcePath $file -ProjectPath $script:project
+        }
+        $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:project -Apply
+        $result.validation.all_passed | Should -BeTrue
+        $result.improved | Should -BeFalse
+        $result.applied | Should -BeFalse
+        @($result.candidates | Where-Object eligible).Count | Should -Be 0
+        [IO.File]::ReadAllText($script:target) | Should -BeExactly $script:original
+    }
+
+    It 'rejects a stale source fingerprint before evaluating candidates' {
+        $batch = New-PSPruneBatch -Path $script:target -FunctionName Get-Category -ProjectPath $script:project -Mode Split
+        Add-Content -LiteralPath $script:target -Value '# outside edit'
+        { Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:project -Apply } |
+            Should -Throw '*source changed*'
+        (Get-PSPruneBatch -Id $batch.id -Path $script:project).status | Should -Be 'open'
+    }
+}

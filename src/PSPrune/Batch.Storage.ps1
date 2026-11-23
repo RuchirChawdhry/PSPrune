@@ -116,7 +116,8 @@ function New-PSPruneBatch {
         [Parameter(Mandatory, Position = 0)][string]$Path,
         [Parameter(Mandatory, Position = 1)][string]$FunctionName,
         [string]$ProjectPath = '.',
-        [string]$TestPath = 'tests'
+        [string]$TestPath = 'tests',
+        [ValidateSet('Single', 'Split')][string]$Mode = 'Single'
     )
     $root = (Resolve-Path -LiteralPath $ProjectPath -ErrorAction Stop).ProviderPath
     if (-not (Get-Item -LiteralPath $root).PSIsContainer) {
@@ -165,6 +166,7 @@ function New-PSPruneBatch {
         $record = [ordered]@{
             schema_version = 1
             id = $id
+            mode = $Mode
             status = 'open'
             created_at = [DateTime]::UtcNow.ToString('o')
             completed_at = $null
@@ -178,6 +180,8 @@ function New-PSPruneBatch {
                 file_sha256 = Get-PSPruneFileDigest -Path $target
                 source_sha256 = Get-PSPruneDigest -Text $definition.Extent.Text
                 signature = Get-PSPruneSignature -FunctionAst $definition
+                attributes = Get-PSPruneFunctionAttribute -FunctionAst $definition
+                is_filter = [bool]$definition.IsFilter
             }
             original = [ordered]@{
                 cyclomatic = [int]$measurements[0].Cyclomatic
@@ -234,7 +238,15 @@ function Submit-PSPruneCandidate {
     try {
         $batch = Get-PSPruneJson -Path (Join-Path $batchDir 'manifest.json')
         if ($batch.status -ne 'open') { throw "Batch '$Id' is not open." }
-        $ast = Get-PSPruneAst -Source $text -FunctionName $batch.target.function -SingleFunction
+        if ($batch.mode -eq 'Split') {
+            $group = Get-PSPruneGroup -Source $text -FunctionName $batch.target.function
+            $targetPath = Join-Path $root $batch.target.file
+            Assert-PSPruneSplitBoundary -Group $group -Batch $batch -Root $root -Source ([IO.File]::ReadAllText($targetPath))
+            $ast = $group.Entry
+        }
+        else {
+            $ast = Get-PSPruneAst -Source $text -FunctionName $batch.target.function -SingleFunction
+        }
         if ((Get-PSPruneSignature -FunctionAst $ast) -cne $batch.target.signature) {
             throw 'Candidate signature differs from the target function.'
         }
