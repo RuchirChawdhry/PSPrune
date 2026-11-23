@@ -106,7 +106,8 @@ function Invoke-PSPruneBatch {
         }
     }
 
-    $baseline = Invoke-PSPrunePester -ProjectRoot $root -RelativeTestPath $batch.test_path -RelativeTargetPath $batch.target.file
+    $timeout = if ($batch.test_timeout_seconds) { [int]$batch.test_timeout_seconds } else { 300 }
+    $baseline = Invoke-PSPrunePester -ProjectRoot $root -RelativeTestPath $batch.test_path -RelativeTargetPath $batch.target.file -TimeoutSeconds $timeout
     if (-not $baseline.Passed) {
         throw "Original project tests failed. No candidates evaluated: $($baseline.Error)"
     }
@@ -121,7 +122,10 @@ function Invoke-PSPruneBatch {
         $cognitive = $null
         $cyclomatic = $null
         $candidateSource = [IO.File]::ReadAllText($candidatePath)
+        $scoreDuration = $null
+        $testDuration = $null
         try {
+            $scoreWatch = [Diagnostics.Stopwatch]::StartNew()
             $candidateAst = Get-PSPruneAst -Source $candidateSource -FunctionName $batch.target.function -SingleFunction
             if ((Get-PSPruneSignature -FunctionAst $candidateAst) -cne $batch.target.signature) {
                 throw 'Candidate signature does not match original.'
@@ -141,7 +145,10 @@ function Invoke-PSPruneBatch {
             finally {
                 if (Test-Path -LiteralPath $scoring) { Remove-Item -LiteralPath $scoring -Force }
             }
-            $tested = Invoke-PSPrunePester -ProjectRoot $root -RelativeTestPath $batch.test_path -RelativeTargetPath $batch.target.file -Replacement $replacement
+            $scoreWatch.Stop()
+            $scoreDuration = $scoreWatch.ElapsedMilliseconds
+            $tested = Invoke-PSPrunePester -ProjectRoot $root -RelativeTestPath $batch.test_path -RelativeTargetPath $batch.target.file -Replacement $replacement -TimeoutSeconds $timeout
+            $testDuration = $tested.DurationMs
             if (-not $tested.Passed) { throw "Pester failed: $($tested.Error)" }
             $passed = $true
             $replacements[$index] = $replacement
@@ -153,20 +160,40 @@ function Invoke-PSPruneBatch {
             passed = $passed
             cyclomatic = $cyclomatic
             cognitive = $cognitive
+            score_duration_ms = $scoreDuration
+            test_duration_ms = $testDuration
+            regression_passed = $null
+            regression_duration_ms = $null
             error = $reason
         })
     }
 
     $allPassed = @($results | Where-Object passed).Count -eq 5
-    $winner = if ($allPassed) {
-        $results | Sort-Object cognitive, cyclomatic, slot | Select-Object -First 1
-    } else { $null }
-    $improved = $null -ne $winner -and (
-        $winner.cognitive -lt $batch.original.cognitive -or (
-            $winner.cognitive -eq $batch.original.cognitive -and
-            $winner.cyclomatic -lt $batch.original.cyclomatic
-        )
-    )
+    $winner = $null
+    $improved = $false
+    if ($allPassed) {
+        $eligible = @($results | Where-Object {
+            $_.cognitive -lt $batch.original.cognitive -or (
+                $_.cognitive -eq $batch.original.cognitive -and
+                $_.cyclomatic -lt $batch.original.cyclomatic
+            )
+        } | Sort-Object cognitive, cyclomatic, slot)
+
+        foreach ($proposal in $eligible) {
+            if ($batch.regression_test_path) {
+                $verified = Invoke-PSPrunePester -ProjectRoot $root -RelativeTestPath $batch.regression_test_path -RelativeTargetPath $batch.target.file -Replacement $replacements[$proposal.slot] -TimeoutSeconds $timeout
+                $proposal.regression_passed = $verified.Passed
+                $proposal.regression_duration_ms = $verified.DurationMs
+                if (-not $verified.Passed) {
+                    $proposal.error = "Full regression failed: $($verified.Error)"
+                    continue
+                }
+            }
+            $winner = $proposal
+            $improved = $true
+            break
+        }
+    }
 
     $record = [ordered]@{
         id = $Id
@@ -183,8 +210,10 @@ function Invoke-PSPruneBatch {
         validation = [ordered]@{
             runner = 'Pester'
             test_path = $batch.test_path
+            regression_test_path = $batch.regression_test_path
             baseline_passed = $true
             all_passed = $allPassed
+            winner_regression_passed = if ($batch.regression_test_path) { [bool]$winner } else { $null }
         }
         candidates = $results.ToArray()
         selected_slot = if ($null -ne $winner) { $winner.slot } else { $null }
