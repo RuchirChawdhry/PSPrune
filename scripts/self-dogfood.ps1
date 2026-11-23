@@ -27,15 +27,15 @@ if (@($introduced.Functions | Where-Object ChangeType -ne 'Added').Count) {
     throw 'Self-dogfood failed: commit report contains functions not classified as newly added.'
 }
 
-Write-Host 'PSPrune self-analysis — top current functions:'
-$project.Functions |
+Write-Information -MessageData 'PSPrune self-analysis - top current functions:' -InformationAction Continue
+Write-Information -MessageData ($project.Functions |
     Select-Object Name, Cognitive, Cyclomatic, Line, File |
-    Format-Table -AutoSize | Out-String | Write-Host
+    Format-Table -AutoSize | Out-String) -InformationAction Continue
 
-Write-Host 'PSPrune self-analysis — top newly introduced functions:'
-$introduced.Functions |
+Write-Information -MessageData 'PSPrune self-analysis - top newly introduced functions:' -InformationAction Continue
+Write-Information -MessageData ($introduced.Functions |
     Select-Object Name, Cognitive, Cyclomatic, Line, File |
-    Format-Table -AutoSize | Out-String | Write-Host
+    Format-Table -AutoSize | Out-String) -InformationAction Continue
 
 $result = [pscustomobject]@{
     SchemaVersion = 1
