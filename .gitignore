@@ -4,3 +4,8 @@ reports/
 *.zip
 .DS_Store
 .vscode/
+
+# Permanent master history can be committed; working batches are local only.
+.psprune/batches/
+.psprune/.lock
+.psprune/.psprune-write-*
