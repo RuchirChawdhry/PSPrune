@@ -60,11 +60,34 @@ jobs:
             throw 'JSON opt-in differs from native PowerShell output.'
           }
 
+      - name: Install Pester for real project-suite smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-PSResource Pester -Version '6.2.0' -Scope CurrentUser -TrustRepository -ErrorAction Stop
+          Import-Module Pester -MinimumVersion '6.2.0' -ErrorAction Stop
+
+      - name: Validate batch management, five-agent submissions, and manual pruning
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $native = & ./scripts/batch-smoke.ps1 -OutFile reports/batch-smoke.json
+          if ($native -isnot [pscustomobject] -or -not $native.Pruned -or
+              $native.HistoryCount -ne 1 -or -not $native.Result.Applied) {
+            throw 'Invalid native PSPrune v0.2 batch contract.'
+          }
+          $json = $native | ConvertTo-Json -Depth 16 | ConvertFrom-Json
+          if ($json.Result.candidates.Count -ne 5) {
+            throw 'Batch JSON round trip lost candidate records.'
+          }
+
       - name: Upload machine-readable smoke evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: psprune-smoke-json
-          path: reports/smoke.json
+          path: |
+            reports/smoke.json
+            reports/batch-smoke.json
           if-no-files-found: ignore
           retention-days: 7
