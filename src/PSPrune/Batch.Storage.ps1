@@ -217,6 +217,7 @@ function New-PSPruneBatch {
             original = [ordered]@{
                 cyclomatic = [int]$measurements[0].Cyclomatic
                 cognitive = [int]$measurements[0].Cognitive
+                concentration_score = [long]$measurements[0].Cognitive * [long]$measurements[0].Cognitive
             }
             slots = @(1..5)
         }
