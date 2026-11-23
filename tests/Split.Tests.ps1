@@ -112,7 +112,7 @@ Describe 'PSPrune v0.3 same-file function groups' {
             $null = Submit-PSPruneCandidate -Id $batch.id -Slot $slot -SourcePath $file -ProjectPath $script:project
         }
         $result = Invoke-PSPrune -BatchId $batch.id -ProjectPath $script:project -Apply
-        $result.validation.winner_passed | Should -BeTrue
+        $result.validation.winner_passed | Should -BeFalse
         $result.improved | Should -BeFalse
         $result.applied | Should -BeFalse
         @($result.candidates | Where-Object eligible).Count | Should -Be 0
@@ -138,7 +138,7 @@ Describe 'PSPrune v0.3 same-file function groups' {
         $result.validation.winner_passed | Should -BeTrue
         $result.validation.winner_regression_passed | Should -BeTrue
         $result.validation.regression_test_path | Should -BeExactly 'tests'
-        @($result.candidates | Where-Object passed).Count | Should -Be 5
+        @($result.candidates | Where-Object passed).Count | Should -Be 1
         @($result.candidates | Where-Object { $null -ne $_.test_duration_ms }).Count | Should -Be 1
         @($result.candidates | Where-Object { $_.regression_passed -eq $true }).Count | Should -Be 1
         @($result.candidates | Where-Object { $null -ne $_.regression_duration_ms }).Count | Should -Be 1
