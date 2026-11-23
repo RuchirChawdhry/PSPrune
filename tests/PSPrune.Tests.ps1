@@ -15,6 +15,15 @@ BeforeAll {
     Import-Module (Join-Path $root 'src/PSPrune/PSPrune.psd1') -Force -ErrorAction Stop
 }
 
+Describe 'PSPrune module exports' {
+    It 'exports precisely the functions declared in its manifest' {
+        $manifest = Import-PowerShellDataFile -LiteralPath (Join-Path $PSScriptRoot '../src/PSPrune/PSPrune.psd1')
+        $expected = @($manifest.FunctionsToExport | Sort-Object)
+        $actual = @(Get-Command -Module PSPrune -CommandType Function | Select-Object -ExpandProperty Name | Sort-Object)
+        @(Compare-Object -ReferenceObject $expected -DifferenceObject $actual).Count | Should -Be 0
+    }
+}
+
 Describe 'PSPrune reporting contract' {
     It 'reports actual per-function scores and locations for one file' {
         $report = Get-PSPruneReport -Path $script:fixture
