@@ -1,4 +1,4 @@
-param([string]$OutFile = 'reports/smoke.json')
+param([string]$OutFile)
 
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).ProviderPath
@@ -67,10 +67,12 @@ try {
         Applied       = $applied
         Rejected      = $rejected
     }
-    $destination = [IO.Path]::GetFullPath($OutFile)
-    $null = New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force
-    $output | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $destination -Encoding utf8
-    Write-Output "PSPrune smoke test passed; JSON written to $destination"
+    if (-not [string]::IsNullOrWhiteSpace($OutFile)) {
+        $destination = [IO.Path]::GetFullPath($OutFile)
+        $null = New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force
+        $output | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $destination -Encoding utf8
+    }
+    Write-Output $output
 }
 finally {
     Remove-Item -LiteralPath $work -Recurse -Force

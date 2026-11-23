@@ -29,6 +29,26 @@ Describe 'PSPrune reporting contract' {
         $function.MetricVersion | Should -BeGreaterThan 0
     }
 
+    It 'returns a native PowerShell object with structured child objects' {
+        $report = Get-PSPruneReport -Path $script:fixture
+        ($report -is [pscustomobject]) | Should -BeTrue
+        ($report.Functions -is [array]) | Should -BeTrue
+        @($report.Functions | Where-Object { $_ -isnot [pscustomobject] }).Count | Should -Be 0
+
+        $top = $report.Functions | Sort-Object Cognitive -Descending | Select-Object -First 1
+        $top.PSObject.Properties.Name | Should -Contain 'Name'
+        $top.PSObject.Properties.Name | Should -Contain 'Cognitive'
+    }
+
+    It 'serializes to JSON only through the standard PowerShell pipeline' {
+        $report = Get-PSPruneReport -Path $script:fixture
+        $json = $report | ConvertTo-Json -Depth 8
+        ($json -is [string]) | Should -BeTrue
+        $parsed = $json | ConvertFrom-Json
+        $parsed.FunctionCount | Should -Be $report.FunctionCount
+        $parsed.Functions.Count | Should -Be $report.Functions.Count
+    }
+
     It 'scans a project directory without generating extra files' {
         $report = Get-PSPruneReport -Path (Split-Path $script:fixture -Parent)
         $report.FunctionCount | Should -BeGreaterOrEqual 2
@@ -37,6 +57,16 @@ Describe 'PSPrune reporting contract' {
 }
 
 Describe 'PSPrune deterministic agent seam' {
+    It 'returns native nested objects instead of JSON text' {
+        $result = Invoke-PSPrune -Path $script:fixture -FunctionName Get-Label -Candidates $script:candidates -TestScript $script:contract
+        ($result -is [pscustomobject]) | Should -BeTrue
+        ($result.Original -is [pscustomobject]) | Should -BeTrue
+        ($result.Candidates -is [array]) | Should -BeTrue
+        @($result.Candidates | Where-Object { $_ -isnot [pscustomobject] }).Count | Should -Be 0
+        $json = $result | ConvertTo-Json -Depth 8
+        ($json | ConvertFrom-Json).Candidates.Count | Should -Be 5
+    }
+
     It 'requires exactly five candidates' {
         { Invoke-PSPrune -Path $script:fixture -FunctionName Get-Label -Candidates $script:candidates[0..3] -TestScript $script:contract } |
             Should -Throw '*Exactly five*'

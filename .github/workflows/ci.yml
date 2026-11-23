@@ -48,12 +48,16 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          & ./scripts/smoke.ps1 -OutFile reports/smoke.json
-          if ($LASTEXITCODE -ne 0) { throw 'Smoke test failed.' }
-          $report = Get-Content -LiteralPath reports/smoke.json -Raw | ConvertFrom-Json
-          if ($report.DryRun.Candidates.Count -ne 5 -or -not $report.Applied.Applied -or
-              $report.Rejected.AllPassed) {
-            throw 'Invalid smoke JSON contract.'
+          $native = & ./scripts/smoke.ps1 -OutFile reports/smoke.json
+          if ($native -isnot [pscustomobject]) { throw 'Smoke must emit a native PowerShell object.' }
+          if ($native.DryRun.Candidates.Count -ne 5 -or -not $native.Applied.Applied -or
+              $native.Rejected.AllPassed) {
+            throw 'Invalid native smoke object contract.'
+          }
+          $roundTrip = $native | ConvertTo-Json -Depth 12 | ConvertFrom-Json
+          $artifact = Get-Content -LiteralPath reports/smoke.json -Raw | ConvertFrom-Json
+          if ($roundTrip.DryRun.SelectedIndex -ne $artifact.DryRun.SelectedIndex) {
+            throw 'JSON opt-in differs from native PowerShell output.'
           }
 
       - name: Upload machine-readable smoke evidence

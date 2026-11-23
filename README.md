@@ -26,16 +26,35 @@ This is a functional initial seam, not a complete autonomous agent implementatio
 ```powershell
 Install-PSResource PSComplexity -Version 0.7.1 -Scope CurrentUser -TrustRepository
 Import-Module ./src/PSPrune/PSPrune.psd1
-Get-PSPruneReport -Path ./tests/fixtures/Example.ps1 | ConvertTo-Json -Depth 8
+
+# Default: native PowerShell object, including a Functions object array
+$report = Get-PSPruneReport -Path ./src
+$report.Functions | Sort-Object Cognitive -Descending | Select-Object -First 10
+
+# Opt-in JSON: standard PowerShell serialization
+Get-PSPruneReport -Path ./src | ConvertTo-Json -Depth 8
 ```
+
+Both `Get-PSPruneReport` and `Invoke-PSPrune` emit native `[pscustomobject]` values.
+Nested functions, candidate results, and scores remain PowerShell objects and arrays.
+The commands do not emit JSON strings, implement a custom JSON serializer, or expose a
+JSON output switch. Use `| ConvertTo-Json -Depth 8` when an agent or other consumer
+needs JSON. This makes sorting, filtering, and `Select-Object` work normally.
 
 ## Deterministic smoke test
 
 ```powershell
-pwsh -NoProfile -File ./scripts/smoke.ps1
+# The smoke harness also returns one native PowerShell object
+./scripts/smoke.ps1
+
+# Optional JSON artifact for CI
+./scripts/smoke.ps1 -OutFile reports/smoke.json
+
+# Or serialize the returned object directly
+./scripts/smoke.ps1 | ConvertTo-Json -Depth 12
 ```
 
-This loads five local candidate fixtures, runs real behavior checks in child PowerShell processes, measures actual complexity, verifies that the source file stays unchanged in dry-run mode, and emits machine-readable JSON. It deliberately exercises production code rather than simulating a green result.
+This loads five local candidate fixtures, runs real behavior checks in child PowerShell processes, measures actual complexity, verifies that the source file stays unchanged in dry-run mode, and returns a structured native PowerShell object. JSON is written only when requested with `-OutFile` or PowerShell's `ConvertTo-Json` command. It deliberately exercises production code rather than simulating a green result.
 
 ## CI
 
