@@ -81,7 +81,6 @@ function Invoke-PSPruneBatch {
     )
     Assert-PSPruneId -Id $Id
     $root = Get-PSPruneRoot -Path $ProjectPath
-    $store = Get-PSPruneStore -Root $root
     $batchDir = Get-PSPruneBatchPath -Root $root -Id $Id
     $batchManifest = Join-Path $batchDir 'manifest.json'
     $batch = Get-PSPruneJson -Path $batchManifest
@@ -165,7 +164,6 @@ function Invoke-PSPruneBatch {
     }
 
     $winner = $null
-    $improved = $false
     $eligibleCandidates = @($results | Where-Object eligible |
         Sort-Object cognitive, cyclomatic, slot)
     foreach ($proposal in $eligibleCandidates) {
@@ -190,72 +188,96 @@ function Invoke-PSPruneBatch {
             }
         }
         $winner = $proposal
-        $improved = $true
         break
     }
+    $replacement = if ($winner) { $replacements[$winner.slot] } else { $null }
+    Complete-PSPruneBatch -Batch $batch -Root $root -Candidates $results.ToArray() -Winner $winner -Replacement $replacement -Apply:$Apply
+}
 
-    $testedCandidates = @($results | Where-Object tested)
+function Complete-PSPruneBatch {
+    param(
+        [Parameter(Mandatory)]$Batch,
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)]$Candidates,
+        $Winner,
+        [string]$Replacement,
+        [switch]$Apply
+    )
+
+    $id = $Batch.id
+    $store = Get-PSPruneStore -Root $Root
+    $target = Join-Path $Root $Batch.target.file
+    $workingManifest = Join-Path (Get-PSPruneBatchPath -Root $Root -Id $id) 'manifest.json'
+    $tested = @($Candidates | Where-Object tested)
+    $improved = $null -ne $Winner
+
     $record = [ordered]@{
-        id = $Id
-        created_at = $batch.created_at
+        id = $id
+        created_at = $Batch.created_at
         completed_at = [DateTime]::UtcNow.ToString('o')
         status = if (-not $improved) { 'rejected' } elseif ($Apply) { 'applied' } else { 'evaluated' }
         target = [ordered]@{
-            file = $batch.target.file
-            function = $batch.target.function
-            source_sha256 = $batch.target.source_sha256
-            file_sha256 = $batch.target.file_sha256
+            file = $Batch.target.file
+            function = $Batch.target.function
+            source_sha256 = $Batch.target.source_sha256
+            file_sha256 = $Batch.target.file_sha256
         }
-        original = $batch.original
+        original = $Batch.original
         validation = [ordered]@{
             runner = 'Pester'
-            test_path = $batch.test_path
-            regression_test_path = $batch.regression_test_path
-            baseline_passed = $null
+            test_path = $Batch.test_path
+            regression_test_path = $Batch.regression_test_path
+            baseline_passed = if ($Batch.mode -eq 'Split') { $true } else { $null }
             all_passed = $null
-            tested_count = $testedCandidates.Count
-            winner_passed = [bool]$winner
-            test_discovery = $batch.test_discovery
-            winner_regression_passed = if ($batch.regression_test_path) { [bool]$winner } else { $null }
-            regression_attempt_count = @($results | Where-Object { $null -ne $_.regression_passed }).Count
+            tested_count = $tested.Count
+            winner_passed = [bool]$Winner
+            test_discovery = $Batch.test_discovery
+            winner_regression_passed = if ($Batch.regression_test_path) { [bool]$Winner } else { $null }
+            regression_attempt_count = @($Candidates | Where-Object { $null -ne $_.regression_passed }).Count
         }
-        candidates = $results.ToArray()
-        selected_slot = if ($null -ne $winner) { $winner.slot } else { $null }
+        candidates = @($Candidates)
+        selected_slot = if ($improved) { $Winner.slot } else { $null }
         improved = [bool]$improved
         applied = $false
     }
 
+    if ($Batch.mode -eq 'Split') { $record.Insert(1, 'mode', 'Split') }
+
     $lock = Enter-PSPruneLock -Store $store
     try {
-        $working = Get-PSPruneJson -Path $batchManifest
-        if ($working.status -ne 'open') { throw "Batch '$Id' has already been finalized." }
-        if ((Get-PSPruneFileDigest -Path $target) -cne $batch.target.file_sha256) {
+        $working = Get-PSPruneJson -Path $workingManifest
+        if ($working.status -ne 'open') { throw "Batch '$id' has already been finalized." }
+        if ((Get-PSPruneFileDigest -Path $target) -cne $Batch.target.file_sha256) {
             throw 'Source changed during candidate evaluation.'
         }
-        $masterPath = Get-PSPruneMasterPath -Root $root
+        $masterPath = Get-PSPruneMasterPath -Root $Root
         $master = Get-PSPruneJson -Path $masterPath
-        if (@($master.batches | Where-Object Id -eq $Id).Count) {
-            throw "Batch '$Id' already exists in master history."
+        if (@($master.batches | Where-Object Id -eq $id).Count) {
+            throw "Batch '$id' already exists in master history."
         }
+
         if ($Apply -and $improved) {
-            $temporary = Join-Path (Split-Path $target -Parent) ('.psprune-apply-' + [guid]::NewGuid().ToString('N'))
+            $temp = Join-Path (Split-Path $target -Parent) (
+                '.psprune-apply-' + [guid]::NewGuid().ToString('N')
+            )
             try {
-                [IO.File]::WriteAllText($temporary, $replacements[$winner.slot], [Text.UTF8Encoding]::new($false))
-                [IO.File]::Move($temporary, $target, $true)
+                [IO.File]::WriteAllText($temp, $Replacement, [Text.UTF8Encoding]::new($false))
+                [IO.File]::Move($temp, $target, $true)
             }
             finally {
-                if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
+                if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
             }
             $record.applied = $true
         }
+
         $master.batches = @($master.batches) + @([pscustomobject]$record)
         Save-PSPruneJson -Path $masterPath -Value $master
         $working.status = $record.status
         $working | Add-Member -NotePropertyName completed_at -NotePropertyValue $record.completed_at -Force
         $working | Add-Member -NotePropertyName selected_slot -NotePropertyValue $record.selected_slot -Force
         $working | Add-Member -NotePropertyName applied -NotePropertyValue $record.applied -Force
-        Save-PSPruneJson -Path $batchManifest -Value $working
-        Get-PSPruneHistory -Path $root | Where-Object Id -eq $Id
+        Save-PSPruneJson -Path $workingManifest -Value $working
+        Get-PSPruneHistory -Path $Root | Where-Object Id -eq $id
     }
     finally { $lock.Dispose() }
 }
