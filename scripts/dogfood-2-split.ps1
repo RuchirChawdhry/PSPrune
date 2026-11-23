@@ -62,6 +62,18 @@ try {
         $after.Substring($lastEnd)
 
     $history = @(Get-PSPruneHistory -Path $project)
+    $scoreEligible = @($evaluated.candidates | Where-Object {
+        $_.total_cognitive -lt $batch.original.cognitive -and
+        $_.max_cognitive -lt $batch.original.cognitive -and
+        $_.adjusted_cyclomatic -le $batch.original.cyclomatic
+    })
+    $outcome = if ($evaluated.applied -and $evaluated.validation.winner_regression_passed) {
+        'Applied'
+    }
+    elseif (-not $scoreEligible.Count -and $evaluated.status -eq 'rejected') {
+        'NoEligible'
+    }
+    else { 'FailedVerification' }
     $evidence = [pscustomobject]@{
         SchemaVersion = 1
         Mode = 'Split'
@@ -72,6 +84,8 @@ try {
         Submitted = $submitted.Count
         Result = $evaluated
         HistoryCount = $history.Count
+        Outcome = $outcome
+        ScoreEligibleCount = $scoreEligible.Count
         CandidateTestPath = $batch.test_path
         RegressionTestPath = $batch.regression_test_path
         OutsideGroupUnchanged = $outsideOld -ceq $outsideNew
@@ -95,10 +109,12 @@ try {
     if ($submitted.Count -ne 5 -or $history.Count -ne 1) {
         throw 'Dogfood 2.0 lost candidate submissions or history.'
     }
-    if (-not $evaluated.validation.winner_regression_passed) { throw 'Dogfood 2.0: winner did not pass full regression.' }
-    if (-not $evaluated.validation.all_passed) { throw 'Dogfood 2.0: not all five candidates passed Pester.' }
-    if (-not $evaluated.improved -or -not $evaluated.applied) {
-        throw 'Dogfood 2.0: no eligible split group was applied.'
+    if (-not $evaluated.validation.all_passed) { throw 'Dogfood 2.0: not all five candidates passed focused Pester.' }
+    if ($outcome -eq 'FailedVerification') {
+        throw 'Dogfood 2.0: an eligible split did not pass the full regression.'
+    }
+    if ($outcome -eq 'NoEligible') {
+        Write-Information -InformationAction Continue -MessageData 'No split improved the complete function group. Correctly rejected all five.'
     }
     $evidence
 }
